@@ -196,7 +196,7 @@ section.sec{gap:22px} section.sec.open{padding-bottom:14px}
 /* tips: what a control does, said when it is pointed at or focused */
 [data-tip]{position:relative}
 [data-tip]::after{content:attr(data-tip);position:absolute;top:calc(100% + 7px);left:50%;transform:translate(-50%,-3px);z-index:40;pointer-events:none;
-  background:var(--fg);color:var(--bg);font:500 12px/1.35 var(--sans);letter-spacing:0;padding:5px 9px;border-radius:6px;white-space:nowrap;max-width:320px;opacity:0;transition:opacity .12s .25s,transform .12s .25s;box-shadow:var(--shadow)}
+  background:var(--fg);color:var(--bg);font:500 12px/1.35 var(--sans);letter-spacing:0;padding:5px 9px;border-radius:6px;white-space:normal;width:max-content;max-width:300px;text-align:left;opacity:0;transition:opacity .12s .25s,transform .12s .25s;box-shadow:var(--shadow)}
 [data-tip]:hover::after,[data-tip]:focus-visible::after{opacity:1;transform:translate(-50%,0)}
 .tools [data-tip]::after,nav.top [data-tip]::after,.toolbar>button[data-tip]::after{left:auto;right:0;transform:translate(0,-3px)}
 .tools [data-tip]:hover::after,nav.top [data-tip]:hover::after,.toolbar>button[data-tip]:hover::after{transform:none}
