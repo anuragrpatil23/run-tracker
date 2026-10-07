@@ -6,7 +6,7 @@
    and under each open one its charts. Click an entry to go there; the one being read is marked. Only Pinned and Main
    start open. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { About, Drawn, Icon, Panel, View } from "./Chart";
+import { About, Drawn, FormulaForm, Icon, Panel, View } from "./Chart";
 import { useStored } from "./lib";
 
 type Section = { id: string; title: string; about: string; keys: string[] };
@@ -27,10 +27,14 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
   const [open, setOpen] = useStored<Record<string, boolean>>("sectionsOpen", {});
   const [size, setSize] = useStored<keyof typeof SIZES>("chartSize", "m");
   const [find, setFind] = useState("");
+  const [adding, setAdding] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
   const sections = useMemo(() => {
-    const charts = numbers.filter(k => !clocks.includes(k) && !hidden.includes(k));       // rows seen and minutes are axes, not charts
+    // Rows seen and minutes are axes, not charts. The loss comes first, then other charts worked out by formula,
+    // then the rest in the order the runs logged them: the chart most people look for should not need finding.
+    const rank = (k: string) => (/(^|[_./])loss($|[_./])/i.test(k) ? 0 : view.formulas[k] ? 1 : 2);
+    const charts = numbers.filter(k => !clocks.includes(k) && !hidden.includes(k)).map((k, i) => ({ k, i })).sort((a, b) => rank(a.k) - rank(b.k) || a.i - b.i).map(e => e.k);
     const by = new Map<string, string[]>();
     for (const k of charts) { const s = sectionOf(k); by.set(s, [...(by.get(s) ?? []), k]); }
     const rest = [...by.keys()].filter(s => s !== "main" && s !== "sys").sort();
@@ -41,7 +45,7 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
     for (const s of rest) out.push({ id: s, title: s, about: `Everything the run logged under “${s}”`, keys: by.get(s)! });
     if (by.has("sys")) out.push({ id: "sys", title: "The machine", about: "GPU, memory and processor, against minutes since the run began", keys: by.get("sys")! });
     return out;
-  }, [numbers, clocks, hidden, pinned]);
+  }, [numbers, clocks, hidden, pinned, view.formulas]);
 
   const q = find.trim().toLowerCase();
   const matching = (s: Section) => (q ? s.keys.filter(k => k.toLowerCase().includes(q)) : s.keys);
@@ -100,6 +104,8 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
           </div>
           <button className="small ghost" onClick={() => setOpen(Object.fromEntries(sections.map(s => [s.id, !sections.every(isOpen)])))}>{sections.every(isOpen) ? "Close all" : "Open all"}</button>
         </div>
+        <button className="small" data-tip="For a number the script did not log but that follows from ones it did, such as a loss that is the sum of two terms" onClick={() => setAdding(true)}>New chart from a formula</button>
+        {adding && <FormulaForm view={view} names={numbers.filter(k => !k.startsWith("sys/") && !view.formulas[k])} close={() => setAdding(false)} />}
       </nav>
       <div className="secbody">
       {sections.map(s => {

@@ -259,6 +259,25 @@ class Index(unittest.TestCase):
         said = self.store.about(self.index.refresh())
         self.assertEqual((said["loss"], said["sky"], said["section:sky"]), ("Lower is better.", "The strongest feature for sky.", "About the word sky."))
 
+    def test_a_chart_can_be_worked_out_by_formula_from_what_was_logged(self):
+        from runtracker import derived
+        self.index.refresh()
+        derived.save("scaled", "loss * lam + 1")
+        derived.save("pace", "rate(rows, step)")
+        derived.save("needs_more", "loss + not_logged")
+        keys = [k["key"] for k in self.index.keys_of(["here/a"])["here/a"]]
+        self.assertEqual(keys[:2], ["scaled", "pace"]); self.assertNotIn("needs_more", keys)
+        s = self.index.series("here/a", "scaled")
+        self.assertEqual((s["n"], s["x"][0]), (100, 0.0)); self.assertAlmostEqual(s["y"][0], 1.0 * 0.2 + 1)
+        pace = self.index.series("here/a", "pace")
+        self.assertEqual((pace["n"], pace["x"][0], pace["y"][0]), (99, 10.0, 4.0))          # four rows a step; no rate on the first line
+        self.assertEqual(self.index.series("here/a", "scaled", x="rows")["x"][1], 40.0)
+        for bad in ("__import__('os').system('true')", "open('x')", "loss if 1 else 2", "loss +", "rate(loss)"):
+            with self.assertRaises(ValueError):
+                derived.save("bad", bad)
+        derived.save("scaled", "")
+        self.assertNotIn("scaled", [k["key"] for k in self.index.keys_of(["here/a"])["here/a"]])
+
     def test_it_follows_a_run_that_grows_and_one_that_is_replaced(self):
         self.index.refresh()
         self.run.log(1000, loss=0.5)

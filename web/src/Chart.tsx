@@ -8,6 +8,7 @@
    Opened large, a chart becomes an inspector: a table of the runs with the value under the pointer and each run's
    latest, lowest and highest; click a run to hide it, alt-click to see it alone; the numbers as CSV or the picture as PNG. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { api, cssColour, enc, fmt, Run, Series, tick, useSeen } from "./lib";
@@ -247,7 +248,41 @@ export type View = {
   x: string; xLabel: string; smooth: number; logs: Record<string, boolean>; setLog: (key: string, on: boolean) => void; theme: string; tickN: number;
   range?: Range; setRange?: (r: Range) => void; trim?: boolean; bundled?: boolean;
   about: Record<string, string>; setAbout: (name: string, text: string) => void;
+  formulas: Record<string, { expr: string }>; saveFormula: (name: string, expr: string, about: string) => Promise<string | null>;
 };
+
+/* Something laid over the page. It is attached to the page itself, not to whatever opened it: a sticky list or a
+   chart makes a layer of its own, and a dialog left inside one ends up underneath its neighbours. */
+export function Modal({ close, side, children }: { close: () => void; side?: boolean; children: React.ReactNode }) {
+  return createPortal(<div className={"modal" + (side ? " side" : "")} onClick={close}>{children}</div>, document.body);
+}
+
+/* A chart worked out from what was logged: a name, a formula, and a sentence saying what it shows. */
+export function FormulaForm({ view, names = [], edit, close }: { view: View; names?: string[]; edit?: string; close: () => void }) {
+  const [name, setName] = useState(edit ?? "");
+  const [expr, setExpr] = useState(edit ? view.formulas[edit]?.expr ?? "" : "");
+  const [text, setText] = useState(edit ? view.about[edit] ?? "" : "");
+  const [error, setError] = useState("");
+  const save = async (formula: string) => { const e = await view.saveFormula(name.trim(), formula, text); e ? setError(e) : close(); };
+  return (
+    <Modal close={close}>
+      <form className="modal-box narrow" onClick={e => e.stopPropagation()} onSubmit={e => { e.preventDefault(); save(expr); }}>
+        <h2>{edit ? `The formula for ${edit}` : "A chart from a formula"}</h2>
+        <p className="muted small">For a number the training script did not log but that follows from ones it did. It appears for every run that has the names the formula uses.</p>
+        <label>Name<input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="loss" disabled={!!edit} required autoFocus={!edit} /></label>
+        <label>Formula<input type="text" className="mono" value={expr} onChange={e => setExpr(e.target.value)} placeholder="rebuild_error + lam * total_firing" required autoFocus={!!edit} /></label>
+        <label>What it shows<input type="text" value={text} onChange={e => setText(e.target.value)} placeholder="One sentence, shown under the chart" /></label>
+        <p className="muted small">Use the names of logged numbers and of hyperparameters, with + - * / ** and brackets. Also: step, seconds, log, log10, exp, sqrt, abs, min, max, and rate(a, b) for how fast a changes as b changes.
+          {names.length > 0 && <> Logged here: <span className="mono">{names.slice(0, 24).join(", ")}</span>{names.length > 24 ? " and more." : "."}</>}</p>
+        {error && <p className="note-warn">{error}</p>}
+        <div className="row">
+          {edit && <button type="button" className="small" onClick={() => save("")}>Remove this chart</button>}
+          <span className="grow" /><button type="button" onClick={close}>Cancel</button><button type="submit" aria-pressed="true">{edit ? "Save" : "Add the chart"}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 /* A sentence under a chart or a section saying what it shows. It comes from the training script if the script said,
    and anyone reading can rewrite it: click, type, Enter. */
@@ -295,7 +330,7 @@ function Inspector({ name, lines, xLabel, logY, view, sync, close }:
     download(name.replace(/[^\w.-]+/g, "_") + ".png", out.toDataURL("image/png"));
   };
   return (
-    <div className="modal" onClick={close}>
+    <Modal close={close}>
       <div className="modal-box" onClick={e => e.stopPropagation()} role="dialog" aria-label={name}>
         <div className="row">
           <h2>{name}</h2><span className="muted small">against {xLabel}</span><span className="grow" />
@@ -321,7 +356,7 @@ function Inspector({ name, lines, xLabel, logY, view, sync, close }:
         </table></div>
         <p className="muted small">Drag across the chart to zoom, double-click to reset. Click a row to hide that line, alt-click to see it alone.{view.smooth ? " Latest, lowest and highest are of the values as logged, not the smoothed line." : ""}</p>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -332,6 +367,8 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
   const [data, setData] = useState<Record<string, Record<string, Series>> | null>(null);
   // "#/?inspect=<name>" opens that chart's inspector straight away, so a link can point at one chart
   const [big, setBig] = useState(() => new URLSearchParams(location.hash.split("?")[1] ?? "").get("inspect") === name);
+  const [editing, setEditing] = useState(false);
+  const formula = view.formulas[name]?.expr;
   const ids = runs.map(r => r.id).join(",");
   const x = name.startsWith("sys/") ? "_t" : view.x;
   useEffect(() => {
@@ -339,7 +376,7 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
     let alive = true;
     api(`/api/v2/series?runs=${enc(ids)}&keys=${enc(name)}&x=${enc(x)}&points=${big ? 6000 : 1500}`).then(d => { if (alive) setData(d); }, () => {});
     return () => { alive = false; };
-  }, [seen, ids, name, x, view.tickN, big]);
+  }, [seen, ids, name, x, view.tickN, big, formula]);
   const lines: Line[] = useMemo(() => {
     const each = runs.map(r => {
       const s = data?.[r.id]?.[name];
@@ -362,6 +399,7 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
         <span className="t" title={name}>{title ?? name}</span>
         {stands && <span className="now" data-tip={latest.length === 1 ? "The latest value" : "The lowest and highest of the runs' latest values"}>{stands}</span>}
         <span className="tools">
+          {formula && <button className="word" data-tip={`Worked out as ${formula}. Click to change it.`} aria-label={`the formula for ${name}`} onClick={() => setEditing(true)}>ƒ</button>}
           <button className="word" aria-pressed={logY} data-tip={logY ? "Log scale. Click for a plain scale." : "Plain scale. Click for a log scale."} onClick={() => view.setLog(name, !logY)}>log</button>
           {onPin && <button aria-pressed={!!pinned} aria-label={pinned ? `unpin ${name}` : `pin ${name}`} data-tip={pinned ? "Pinned. Click to unpin." : "Pin to the top"} onClick={onPin}><Icon name="pin" /></button>}
           {onHide && <button aria-label={`hide ${name}`} data-tip="Hide this chart" onClick={onHide}><Icon name="hide" /></button>}
@@ -373,6 +411,7 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
         ? <Chart lines={lines} xLabel={xLabel} logY={logY} smooth={view.smooth} syncKey={sync} height={height} theme={view.theme}
             range={x === "_t" ? undefined : view.range} onRange={x === "_t" ? undefined : view.setRange} trim={view.trim} />
         : <div className="empty" style={{ height }} />}
+      {editing && <FormulaForm view={view} edit={name} close={() => setEditing(false)} />}
       {big && <Inspector name={name} lines={lines} xLabel={xLabel} logY={logY} view={view} sync={sync} close={close} />}
     </figure>
   );

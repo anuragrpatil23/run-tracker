@@ -19,7 +19,7 @@ shrunk, the run was replaced: its rows are dropped and it is read again from the
 import json, math, os, sqlite3, threading, time
 from pathlib import Path
 
-from . import store, wandbfile
+from . import derived, store, wandbfile
 
 VERSION = 3
 SCHEMA = """
@@ -178,9 +178,48 @@ def keys_of(run_ids):
         con = db()
         out = {}
         for rid in run_ids:
-            out[rid] = [{"key": r[0], "kind": r[1], "n": r[2], "last": r[3] if r[1] == "number" else None, "lo": r[4], "hi": r[5], "mono": bool(r[6])}
-                        for r in con.execute("SELECT key, kind, n, last, lo, hi, mono FROM keys WHERE run=? ORDER BY key", (rid,))]
+            logged = [{"key": r[0], "kind": r[1], "n": r[2], "last": r[3] if r[1] == "number" else None, "lo": r[4], "hi": r[5], "mono": bool(r[6])}
+                      for r in con.execute("SELECT key, kind, n, last, lo, hi, mono FROM keys WHERE run=? ORDER BY key", (rid,))]
+            # A chart worked out by formula is offered for a run that has every name the formula uses, and comes first.
+            have = {k["key"] for k in logged if k["kind"] == "number"}
+            settings = _settings(con, rid)
+            made = []
+            for name, d in derived.load().items():
+                try:
+                    need = derived.names(d["expr"])
+                except ValueError:
+                    continue
+                if name not in have and need & have and all(n in have or n in ("step", "seconds") or store.is_number(settings.get(n)) for n in need):
+                    made.append({"key": name, "kind": "number", "n": 0, "last": None, "lo": None, "hi": None, "mono": False, "formula": d["expr"]})
+            out[rid] = made + logged
         return out
+
+
+def _settings(con, run_id):
+    row = con.execute("SELECT summary FROM runs WHERE id=?", (run_id,)).fetchone()
+    return (json.loads(row[0]).get("settings") or {}) if row else {}
+
+
+def _worked_out(con, run_id, expr, x):
+    """A formula's values on each logged line of a run, with the x that goes with each."""
+    lines = con.execute("SELECT n, step, t FROM line WHERE run=? AND stream=0 ORDER BY n", (run_id,)).fetchall()
+    place = {n: i for i, (n, _, _) in enumerate(lines)}
+    need = derived.names(expr) | ({x} if x not in ("step", "_t") else set())
+    columns = {}
+    for name in need:
+        got = con.execute("SELECT n, v FROM point WHERE run=? AND key=?", (run_id, name)).fetchall()
+        if got:
+            col = [None] * len(lines)
+            for n, v in got:
+                if n in place:
+                    col[place[n]] = v
+            columns[name] = col
+    t0 = min((t for _, _, t in lines if t is not None), default=0)
+    columns.setdefault("step", [s for _, s, _ in lines])                               # every run has these two without logging them
+    columns.setdefault("seconds", [None if t is None else t - t0 for _, _, t in lines])
+    ys = derived.evaluate(expr, columns, _settings(con, run_id), len(lines))
+    xs = [s for _, s, _ in lines] if x == "step" else [None if t is None else t - t0 for _, _, t in lines] if x == "_t" else columns.get(x, [None] * len(lines))
+    return [(a, b) for a, b in zip(xs, ys) if a is not None and b is not None]
 
 
 def _thin(xs, ys, limit):
@@ -208,7 +247,13 @@ def series(run_id, key, x="step", limit=1500):
     with _lock:
         con = db()
         stream = 1 if key.startswith("sys/") else 0
-        if x == "step" and stream == 0:
+        formula = derived.load().get(key)
+        if formula and not con.execute("SELECT 1 FROM keys WHERE run=? AND key=?", (run_id, key)).fetchone():
+            try:
+                rows = _worked_out(con, run_id, formula["expr"], x)
+            except ValueError:
+                rows = []
+        elif x == "step" and stream == 0:
             rows = con.execute("SELECT l.step, p.v FROM point p JOIN line l ON l.run=p.run AND l.stream=0 AND l.n=p.n "
                                "WHERE p.run=? AND p.key=? AND l.step IS NOT NULL ORDER BY p.n", (run_id, key)).fetchall()
         elif x in ("_t", "step"):                           # the machine's samples have only a time

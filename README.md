@@ -123,6 +123,9 @@ rt view --watch           # the same, syncing in the background while a run is g
 - **Table, Settings, One number against a setting.** The other tabs of the workspace: every run
   with its settings and latest numbers; the settings of the drawn runs side by side; and one dot
   per run of a number against a setting, the picture for choosing a value such as a penalty.
+- **Charts from a formula.** For a number the script did not log but that follows from ones it did:
+  give it a name and a formula, such as `loss = rebuild_error + lam * total_firing`, using logged
+  numbers, hyperparameters, `step` and `seconds`. It appears for every run that has those names.
 - **One run.** Its charts, the machine (GPU, memory) against time, settings, the command, the
   commit linked to GitHub, what the script printed, the files it saved, and a box for what you
   expected before the run beside what happened after.

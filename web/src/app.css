@@ -205,3 +205,5 @@ aside.runs [data-tip]::after,.toc [data-tip]::after,.runstrip [data-tip]::after{
 nav.top [data-tip]::after{white-space:normal;width:max-content;max-width:360px}
 .tabs [data-tip]::after{left:0;transform:translate(0,-3px)} .tabs [data-tip]:hover::after{transform:none}
 .panel.sweep{margin-top:22px;padding-top:26px;border-top:1px solid var(--rule)}
+.modal-box.narrow{width:min(560px,100%)} .modal-box.narrow input{width:100%} .modal-box.narrow button[type=submit]{border-color:var(--fg)}
+.toc>button{align-self:flex-start}

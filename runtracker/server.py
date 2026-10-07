@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import export, index, store, sync
+from . import derived, export, index, store, sync
 
 STATIC = Path(__file__).parent / "static"
 syncing = {"busy": False, "last": None, "error": None, "lines": [], "watch": None}
@@ -88,6 +88,8 @@ class Handler(BaseHTTPRequestHandler):
                            "data": str(store.data_dir()), "now": time.time()})
             elif url.path == "/api/v2/about":
                 self.send(store.about(index.refresh()))
+            elif url.path == "/api/v2/derived":
+                self.send(derived.load())
             elif url.path == "/api/v2/keys":
                 ids = [i for i in q.get("runs", "").split(",") if i]
                 self.send(index.keys_of(ids))
@@ -145,6 +147,11 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/v2/about":
                 store.set_about(str(body["key"]), str(body.get("text", "")))
                 self.send(store.about(index.refresh()))
+            elif path == "/api/v2/derived":
+                try:
+                    self.send(derived.save(str(body["name"]), str(body.get("expr", ""))))
+                except ValueError as e:
+                    self.send({"error": str(e)}, code=400)
             elif path == "/api/notes":
                 store.set_notes(body["id"], body.get("text", ""))
                 self.send({"ok": True})

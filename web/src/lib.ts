@@ -9,7 +9,7 @@ export type Run = {
   tags: string[]; note: string; prediction: string; synced: number | null; commit: string | null;
   job: { id: string; state: string; raw: string; exit_code: string | null } | null;
 };
-export type KeyInfo = { key: string; kind: "number" | "words"; n: number; last: number | null; lo: number | null; hi: number | null; mono: boolean };
+export type KeyInfo = { key: string; kind: "number" | "words"; n: number; last: number | null; lo: number | null; hi: number | null; mono: boolean; formula?: string };
 export type Series = { x: number[]; y: number[]; n: number };
 export type SyncState = { busy: boolean; last: number | null; error: string | null; lines: string[]; watch: number | null };
 

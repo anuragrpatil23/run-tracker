@@ -44,6 +44,16 @@ export function App() {
   const [about, setAboutMap] = useState<Record<string, string>>({});
   useEffect(() => { api("/api/v2/about").then(setAboutMap, () => {}); }, [data?.runs.length]);
   const setAbout = useCallback((key: string, text: string) => { api("/api/v2/about", { key, text }).then(setAboutMap, e => say(e.message)); }, []);
+  // charts worked out by formula from what was logged
+  const [formulas, setFormulas] = useState<Record<string, { expr: string }>>({});
+  useEffect(() => { api("/api/v2/derived").then(setFormulas, () => {}); }, []);
+  const saveFormula = useCallback(async (name: string, expr: string, text: string) => {
+    try {
+      setFormulas(await api("/api/v2/derived", { name, expr }));
+      if (expr.trim()) setAboutMap(await api("/api/v2/about", { key: name, text }));
+      return null;
+    } catch (e: any) { return String(e.message || e); }
+  }, []);
   // Before the charts redraw: they read their colours off the page, so the page must already be in the new theme.
   useLayoutEffect(() => { theme ? document.documentElement.setAttribute("data-theme", theme) : document.documentElement.removeAttribute("data-theme"); }, [theme]);
   const say = useCallback((text: string) => { setToast(text); setTimeout(() => setToast(t => (t === text ? "" : t)), 5000); }, []);
@@ -73,9 +83,9 @@ export function App() {
       </nav>
       <main>
         {!data ? <p className="muted">Loading…</p>
-          : kind === "run" && arg ? <RunPage key={arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} />
+          : kind === "run" && arg ? <RunPage key={arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />
           : kind === "search" && arg ? <Search q={decodeURIComponent(arg)} runs={runs} />
-          : <Workspace runs={runs} theme={shownTheme} say={say} about={about} setAbout={setAbout} />}
+          : <Workspace runs={runs} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />}
       </main>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

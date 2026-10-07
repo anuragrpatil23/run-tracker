@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, View } from "./Chart";
 import { ChartSections } from "./Sections";
 import { api, dur, enc, fmt, KeyInfo, Run, sizeText, usePoll, useStored, when } from "./lib";
-import { Badge } from "./Workspace";
+import { Badge, Told } from "./Workspace";
 
 type Detail = Run & {
   meta: any; status: any; config: Record<string, unknown>; sync: any; local: { outcome?: string }; notes: string; commit_url: string | null; folder: string;
@@ -58,11 +58,11 @@ function Words({ id, name, find, at, grown }: { id: string; name: string; find: 
   );
 }
 
-export function RunPage({ id, query, theme, say, about, setAbout }:
-  { id: string; query: URLSearchParams; theme: string; say: (t: string) => void; about: Record<string, string>; setAbout: (name: string, text: string) => void }) {
+export function RunPage({ id, query, theme, say, about, setAbout, formulas, saveFormula }:
+  { id: string; query: URLSearchParams; theme: string; say: (t: string) => void } & Told) {
   const { data: d, error, reload } = usePoll<Detail>(() => api(`/api/run?id=${enc(id)}`), 5000, [id]);
   const grown = d?.lines ?? 0;
-  const { data: keyMap } = usePoll<Record<string, KeyInfo[]>>(() => api(`/api/v2/keys?runs=${enc(id)}`), 0, [id, grown]);
+  const { data: keyMap } = usePoll<Record<string, KeyInfo[]>>(() => api(`/api/v2/keys?runs=${enc(id)}`), 0, [id, grown, JSON.stringify(formulas)]);
   const [tab, setTab] = useState(query.get("tab") || (query.get("find") ? "words" : "charts"));
   const [x, setX] = useStored("x", "step");
   const [smooth, setSmooth] = useStored("smooth", 0);
@@ -74,7 +74,7 @@ export function RunPage({ id, query, theme, say, about, setAbout }:
   const clocks = keys.filter(k => k.kind === "number" && k.mono && (k.hi ?? 0) > (k.lo ?? 0) && !k.key.includes(".") && !k.key.startsWith("sys/")).map(k => k.key);
   const xChoices: [string, string][] = [["step", "step"], ...clocks.map(k => [k, k] as [string, string]), ["_t", "time (minutes)"]];
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
-  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim, about, setAbout };
+  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim, about, setAbout, formulas, saveFormula };
   const drawn = useMemo(() => (d ? [{ id, name: d.name, slot: 1 }] : []), [id, d?.name]);
   const machine = numbers.filter(k => k.startsWith("sys/"));
   const wordGroups = [...new Set(keys.filter(k => k.kind === "words").map(k => (k.key.includes(".") ? k.key.split(".").slice(0, -1).join(".") : k.key)))];

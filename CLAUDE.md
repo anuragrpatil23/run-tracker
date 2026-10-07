@@ -16,6 +16,8 @@ between the three parts.
 - `runtracker/server.py` — the viewer's server, 127.0.0.1 only. `runtracker/export.py` — self-contained pages.
 - `runtracker/index.py` — the SQLite index the viewer's `/api/v2/` routes read from. Disposable: rebuilt
   from the run folders, bump `VERSION` when its tables change.
+- `runtracker/derived.py` — charts worked out by formula from what was logged (`derived.json` in the data
+  folder). Formulas are parsed as arithmetic only; keep it that way.
 - `web/` — the viewer (TypeScript, React, uPlot, Vite). `npm run build` writes `runtracker/static/app/`,
   which is committed so that installing needs no Node. Rebuild and commit it with any change under `web/`.
 - `web/src/app.css` is the app's whole stylesheet and says what the design is: colour only for data and run
@@ -39,6 +41,8 @@ between the three parts.
 - Minerva: read before changing anything, use the existing `ssh minerva` shared connection, and ask
   before any change on the cluster. The tool itself only ever reads there.
 - A copy of `tracker.py` is vendored in `Learn-AI/train-sparse-autoencoder/`. After changing the writer, copy it across.
+- Dialogs in the app go through `Modal` (a portal to the page). One rendered inside a sticky or positioned
+  element ends up underneath its neighbours and cannot be clicked.
 - Series colours in `style.css` (`--s1`..`--s8`) are a checked set in a fixed order; do not reorder or add a ninth.
 
 ## Checking a change

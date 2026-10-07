@@ -1,6 +1,6 @@
 /* The workspace: the runs down the left, and what they logged on the right. Ticking a run draws it on every chart. */
 import { useMemo, useState } from "react";
-import { asDrawn, View } from "./Chart";
+import { asDrawn, Modal, View } from "./Chart";
 import { ChartSections } from "./Sections";
 import { api, differing, dur, enc, fmt, going, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
 
@@ -8,9 +8,11 @@ import { api, differing, dur, enc, fmt, going, isNum, KeyInfo, Run, runHref, slo
 const MARK: Record<string, string> = { finished: "✓", failed: "✕", died: "✕", stalled: "!", pending: "…", ended: "–", running: "" };
 export const Badge = ({ run }: { run: Pick<Run, "state" | "why"> }) => <span className={"state " + run.state} title={run.why || ""}><i aria-hidden>{MARK[run.state] ?? ""}</i>{run.state}</span>;
 
-type Shared = { runs: Run[]; theme: string; say: (text: string) => void; about: Record<string, string>; setAbout: (name: string, text: string) => void };
+export type Told = { about: Record<string, string>; setAbout: (name: string, text: string) => void;
+  formulas: Record<string, { expr: string }>; saveFormula: (name: string, expr: string, about: string) => Promise<string | null> };
+type Shared = { runs: Run[]; theme: string; say: (text: string) => void } & Told;
 
-export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
+export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFormula }: Shared) {
   const [filter, setFilter] = useStored("filter", "");
   const [groupBy, setGroupBy] = useStored("groupBy", "");
   const [sortBy, setSortBy] = useStored("sortBy", "newest");
@@ -56,7 +58,7 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
 
   const ids = drawnRuns.map(r => r.id).join(",");
   const grown = drawnRuns.reduce((n, r) => n + r.lines, 0);
-  const { data: keyMap } = usePoll<Record<string, KeyInfo[]>>(() => (ids ? api(`/api/v2/keys?runs=${enc(ids)}`) : Promise.resolve({})), 0, [ids, grown]);
+  const { data: keyMap } = usePoll<Record<string, KeyInfo[]>>(() => (ids ? api(`/api/v2/keys?runs=${enc(ids)}`) : Promise.resolve({})), 0, [ids, grown, JSON.stringify(formulas)]);
   const keys = useMemo(() => {
     const all = new Map<string, { clock: boolean; kind: string }>();
     for (const list of Object.values(keyMap ?? {})) for (const k of list) {
@@ -71,7 +73,7 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
   const view: View = {
     x: xNow, xLabel: xChoices.find(c => c[0] === xNow)![1].replace("time (minutes)", "minutes"), smooth, logs, theme, tickN: grown,
-    range, setRange, trim, bundled: asGroups, about, setAbout,
+    range, setRange, trim, bundled: asGroups, about, setAbout, formulas, saveFormula,
     setLog: (key, on) => setLogs(old => ({ ...old, [key]: on })),
   };
   const plain = numbers.filter(k => !k.startsWith("sys/") && !k.includes(".") && !clocks.includes(k));
@@ -99,7 +101,7 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
 
   return (
     <div className="workspace">
-      {choosing && <div className="modal side" onClick={() => setChoosing(false)}><aside className="runs" aria-label="Choose runs" onClick={e => e.stopPropagation()}>
+      {choosing && <Modal side close={() => setChoosing(false)}><aside className="runs" aria-label="Choose runs" onClick={e => e.stopPropagation()}>
         <div className="row">
           <h2>Choose runs</h2><span className="grow" /><button className="small" onClick={() => setChoosing(false)}>Done</button>
         </div>
@@ -139,7 +141,7 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
           ))}
           {!runs.length && <div className="muted small" style={{ padding: "14px 0" }}>No runs yet. Say where runs are written, then copy them:<pre>rt source add NAME --root /path/to/runs --ssh HOST{"\n"}rt sync</pre></div>}
         </div>
-      </aside></div>}
+      </aside></Modal>}
 
       <section className="main">
         <div className="runstrip" aria-label="The runs, and which are drawn">
