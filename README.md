@@ -1,7 +1,9 @@
-# run-tracker
+# Train Run Tracker
 
 Watch, compare and keep training runs, for runs that happen on a cluster, are written to files,
-and are looked at from a laptop.
+and are looked at from a laptop. It reads its own simple run folders and the run files the
+Weights & Biases client writes in offline mode, so a script that already calls `wandb.log` can be
+viewed with no account, no server and nothing leaving the machine.
 
 The training job only writes files. It opens no network connection and sends nothing anywhere.
 Everything else happens later, on the laptop, by reading those files.
@@ -109,25 +111,29 @@ rt view                   # http://127.0.0.1:8787
 rt view --watch           # the same, syncing in the background while a run is going
 ```
 
-- **Runs.** One row per run: state, how far along, how long, the settings that differ between
-  runs, the latest value of chosen numbers, tags and a one-line note. Sort by any column; filter
-  by name, tag, note or `setting=value`.
-- **One run.** A chart for every number, against step, rows seen or time, with a log scale where
-  wanted. A box for what you expected before the run and what happened after. The commit, linked
-  to GitHub, and the command. GPU use underneath on the same axis. Notes.
-- **Things that are not numbers.** A field that is a list of words is a timeline, one row per
-  logging step, with the words that are new in each row outlined. A nested object gets its own
-  panel. The search box at the top looks through these fields across every run and answers with
-  the first step at which the text appears.
-- **Several runs together.** Tick runs in the list and press Compare: the same number from each
-  run on one chart, a table of where their settings differ, and a chart of a final number against
-  a setting.
-- **A run still going.** The pages reread the copied files every few seconds. A run whose
-  heartbeat is old while its job is still listed as running is marked stalled.
-- **Export.** "Export as a page" on a run or a comparison writes one HTML file that carries its
-  own data and drawing code. `rt export` does the same from the command line. Pages go to
-  `~/run-tracker-data/exports/` unless a full path is given or `export_dir` is set in
-  `~/run-tracker-data/config.json`.
+- **Workspace.** The runs down the left, what they logged on the right. Tick runs to draw them:
+  every number becomes a chart with a line per run. Drag across a chart to zoom, double-click to
+  reset; the readout follows the pointer on every chart at once. Smoothing, a log scale per chart
+  (chosen for you when a number spans a hundredfold), and any number that only goes up (rows seen,
+  minutes) as the x axis. Filter, sort and group the runs by any setting.
+- **Table, Settings, One number against a setting.** The other tabs of the workspace: every run
+  with its settings and latest numbers; the settings of the drawn runs side by side; and one dot
+  per run of a number against a setting, the picture for choosing a value such as a penalty.
+- **One run.** Its charts, the machine (GPU, memory) against time, settings, the command, the
+  commit linked to GitHub, what the script printed, the files it saved, and a box for what you
+  expected before the run beside what happened after.
+- **Words.** A field that is a list of words is a timeline, one row per logged line, with the
+  words that are new in each row outlined. The search box looks through these fields across every
+  run and answers with the first step at which the text appears.
+- **A run still going.** Pages refresh every few seconds. A run whose heartbeat is old while its
+  job is still listed as running is marked stalled.
+- **Export.** "Export as a page" writes one HTML file that carries its own data and drawing code.
+  `rt export` does the same from the command line. Pages go to `~/run-tracker-data/exports/`
+  unless a full path is given or `export_dir` is set in `~/run-tracker-data/config.json`.
+
+Behind the viewer is an index, `~/run-tracker-data/index.sqlite`, built from the run folders so
+that long runs and many runs stay quick. It holds nothing that is not in the folders and can be
+deleted at any time.
 
 The viewer listens on 127.0.0.1 only and has no accounts.
 
@@ -136,8 +142,15 @@ The viewer listens on 127.0.0.1 only and has no accounts.
 It does not store weights, start or stop jobs, or run sweeps. It lists the weights and where
 they are, reads the scheduler's state, and shows the results of a sweep.
 
-## Tests
+## Working on it
 
 ```sh
-python3 -m unittest discover tests
+python3 -m unittest discover tests      # the writer, the sync, the W&B file reader, the index
+
+cd web && npm install                   # the viewer: TypeScript, React, uPlot, built with Vite
+npm run dev                             # the app with live reload, talking to a running `rt view`
+npm run build                           # writes runtracker/static/app/, which `rt view` serves
 ```
+
+The built viewer is kept in the repository, so `pip install` and `rt view` need no Node. The
+Python side has no dependencies. The earlier plain-JavaScript viewer is still at `/classic`.

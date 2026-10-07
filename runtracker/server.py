@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import export, store, sync
+from . import export, index, store, sync
 
 STATIC = Path(__file__).parent / "static"
 syncing = {"busy": False, "last": None, "error": None, "lines": [], "watch": None}
@@ -83,12 +83,40 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({"records": records[since:], "total": len(records)})
             elif url.path == "/api/system":
                 self.send({"records": store.system_of(store.run_path(q["id"]))})
+            elif url.path == "/api/v2/runs":
+                self.send({"runs": index.refresh(), "sync": syncing, "sources": store.load_config()["sources"],
+                           "data": str(store.data_dir()), "now": time.time()})
+            elif url.path == "/api/v2/keys":
+                ids = [i for i in q.get("runs", "").split(",") if i]
+                self.send(index.keys_of(ids))
+            elif url.path == "/api/v2/series":
+                # runs and keys are comma separated; the reply is {run: {key: {x, y, n}}}
+                ids = [i for i in q.get("runs", "").split(",") if i]
+                names = [k for k in q.get("keys", "").split(",") if k]
+                limit = max(50, min(20000, int(q.get("points", 1500))))
+                self.send({rid: {k: index.series(rid, k, q.get("x", "step"), limit) for k in names} for rid in ids})
+            elif url.path == "/api/v2/timeline":
+                index.refresh(q["id"])
+                self.send(index.timeline(q["id"], q["key"], q.get("changes", "1") == "1"))
+            elif url.path == "/api/v2/search":
+                index.refresh()
+                self.send({"query": q.get("q", ""), "results": index.search(q.get("q", ""))})
+            elif url.path == "/api/v2/output":
+                self.send({"text": store.output_of(store.run_path(q["id"]))})
             elif url.path == "/api/search":
                 self.send({"query": q.get("q", ""), "results": store.search(q.get("q", ""))})
             elif url.path == "/api/sync":
                 self.send(syncing)
             elif url.path in ("/", "/index.html"):
+                built = STATIC / "app" / "index.html"       # the built frontend; the plain one stands in if it is missing
+                self.send((built if built.is_file() else STATIC / "index.html").read_bytes(), "text/html")
+            elif url.path == "/classic":
                 self.send((STATIC / "index.html").read_bytes(), "text/html")
+            elif url.path.startswith("/app/"):
+                f = (STATIC / "app" / url.path[5:]).resolve()
+                if (STATIC / "app").resolve() not in f.parents or not f.is_file():
+                    return self.send({"error": "not found"}, code=404)
+                self.send(f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
             elif url.path.startswith("/static/"):
                 f = (STATIC / url.path[8:]).resolve()
                 if STATIC.resolve() not in f.parents or not f.is_file():

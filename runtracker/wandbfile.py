@@ -211,6 +211,12 @@ def _apply(run, data):
                 m["command"] = " ".join([m.get("executable") or "python", program] + args)
             if gpus:
                 m["gpus"] = gpus
+        elif kind == OUTPUT_RAW:
+            for num, v in _fields(body):
+                if num == 3:
+                    run["output"].append(_text(v))
+            if len(run["output"]) > 20000:                  # what the script printed; the newest is what gets read
+                del run["output"][:10000]
         elif kind == EXIT:
             f = dict(_fields(body))
             code = f.get(1, 0)
@@ -257,7 +263,7 @@ def load(path):
         st = os.stat(path)
         run = _cache.get(path)
         if run is None or run["inode"] != st.st_ino or st.st_size < run["offset"]:
-            run = _cache[path] = {"inode": st.st_ino, "offset": 0, "log": [], "system": [], "config": {}, "exit": None, "last_t": None,
+            run = _cache[path] = {"inode": st.st_ino, "offset": 0, "log": [], "system": [], "output": [], "config": {}, "exit": None, "last_t": None,
                                   "meta": {"format": "wandb", "git": {"commit": None, "remote": None, "dirty": None}, "wandb": {}, "restarts": []}}
         _read(path, run)
         last = run["log"][-1] if run["log"] else {}
@@ -272,7 +278,7 @@ def load(path):
             status.update(state="finished" if run["exit"] == 0 else "failed", ended=run["last_t"])
             if run["exit"]:
                 status["error"] = "the script ended with exit code %d" % run["exit"]
-        return {"log": run["log"], "system": run["system"], "config": run["config"], "meta": run["meta"], "status": status}
+        return {"log": run["log"], "system": run["system"], "output": run["output"], "config": run["config"], "meta": run["meta"], "status": status}
 
 
 def find(folder):

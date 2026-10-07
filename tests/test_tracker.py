@@ -215,5 +215,51 @@ class WandbFile(unittest.TestCase):
         self.assertEqual(self.store.search("heavens")[0]["fields"][0]["field"], "sky.responds_to")
 
 
+class Index(unittest.TestCase):
+    """The SQLite index the viewer reads from, built from run folders and thrown away at will."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        os.environ["RUN_TRACKER_DATA"] = str(Path(self.tmp.name) / "data")
+        from runtracker import index, store
+        self.index, self.store = index, store
+        self.folder = store.runs_dir() / "here" / "a"
+        self.run = tracker.start(str(self.folder), {"lam": 0.2}, system_every=0)
+        for step in range(0, 1000, 10):
+            self.run.log(step, rows=step * 4, loss=1000.0 if step == 500 else 1.0 / (step + 1), bad=float("nan"),
+                         sky={"feature": 7, "responds_to": [" ammon"] if step < 300 else [" sky", " heavens"]})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_what_was_logged_can_be_asked_for(self):
+        runs = self.index.refresh()
+        self.assertEqual([(r["id"], r["step"]) for r in runs], [("here/a", 990)])
+        keys = {k["key"]: k for k in self.index.keys_of(["here/a"])["here/a"]}
+        self.assertEqual((keys["loss"]["kind"], keys["rows"]["mono"], keys["loss"]["mono"], keys["sky.responds_to"]["kind"]), ("number", True, False, "words"))
+        self.assertNotIn("bad", keys)                       # nothing but NaN was ever logged under it
+        whole = self.index.series("here/a", "loss")
+        self.assertEqual((whole["n"], whole["x"][:2]), (100, [0.0, 10.0]))
+        thin = self.index.series("here/a", "loss", limit=20)
+        self.assertLessEqual(len(thin["x"]), 22); self.assertIn(1000.0, thin["y"])     # thinned, and the spike is still there
+        self.assertEqual(self.index.series("here/a", "loss", x="rows")["x"][1], 40.0)
+        t = self.index.timeline("here/a", "sky")
+        self.assertEqual(([c["name"] for c in t["columns"]], t["shown"], t["total"], t["rows"][1]["step"]), (["feature", "responds_to"], 2, 100, 300.0))
+        found = self.index.search("heavens")
+        self.assertEqual((found[0]["run"], found[0]["fields"][0]["first_step"], found[0]["fields"][0]["count"]), ("here/a", 300.0, 70))
+        self.assertEqual(self.index.search("ammon\" "), [])
+
+    def test_it_follows_a_run_that_grows_and_one_that_is_replaced(self):
+        self.index.refresh()
+        self.run.log(1000, loss=0.5)
+        self.assertEqual(self.index.refresh()[0]["step"], 1000)
+        self.assertEqual(self.index.series("here/a", "loss")["n"], 101)
+        (self.folder / "log.jsonl").write_text('{"step": 0, "loss": 9.0}\n')
+        self.assertEqual(self.index.refresh()[0]["step"], 0)
+        self.assertEqual(self.index.series("here/a", "loss"), {"x": [0.0], "y": [9.0], "n": 1})
+        import shutil; shutil.rmtree(self.folder)
+        self.assertEqual(self.index.refresh(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

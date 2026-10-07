@@ -112,6 +112,20 @@ def status_of(path):
     return wandbfile.load(w)["status"] if w else read_json(Path(path) / "status.json")
 
 
+def output_of(path, limit=400000):
+    """What the script printed, newest last: from the W&B file, or from the job's output file beside the run."""
+    w = wandbfile.find(path)
+    if w:
+        return "".join(wandbfile.load(w)["output"])[-limit:]
+    for name in ("job.out", "output.log", "stdout.log", "train.log"):
+        f = Path(path) / name
+        if f.is_file():
+            with open(f, "rb") as fh:
+                fh.seek(max(0, f.stat().st_size - limit))
+                return fh.read().decode("utf-8", "replace")
+    return ""
+
+
 def is_marker(name):
     """Whether a file of this name makes its folder a run folder."""
     return name in RUN_MARKERS or wandbfile.is_run_file(name)

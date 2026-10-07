@@ -37,3 +37,16 @@ Found by trial with client 0.30.0:
 Not yet read from the file: summary records, console output, media and tables, artifacts, the Slurm
 entry of the environment record, partial-history requests. Not yet tried: a GPU node, a resumed run,
 a client version other than 0.30.0.
+
+# The viewer rebuilt (2026-10-06)
+
+Anurag wants this to be a full app, open for anyone who logs with the W&B client and cannot use its UI.
+Shown name: Train Run Tracker (his choice). Repo, package and the `rt` command keep their names for now.
+
+- The "no build step" rule is dropped for the viewer only. Stack: Vite, React, TypeScript, uPlot. Python stays dependency-free.
+- An index (SQLite, standard library) sits between the run folders and the viewer.
+- The server is still Python's own http.server and the pages still poll; live push has not been built.
+
+Not built yet: pictures, tables and histograms from W&B runs; lines per group with a band; saved views kept
+on the server; arranging and resizing panels; alerts; code diff between runs. Tabs and controls were
+type-checked and the pages looked at in headless Chrome, but nothing was clicked through by a script.
