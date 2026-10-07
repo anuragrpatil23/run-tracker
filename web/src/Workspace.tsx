@@ -2,15 +2,15 @@
 import { useMemo, useState } from "react";
 import { asDrawn, View } from "./Chart";
 import { ChartSections } from "./Sections";
-import { api, differing, dur, enc, fmt, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
+import { api, differing, dur, enc, fmt, going, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
 
 /* The state of a run as a mark and a word. The marks are not dots: on this page a coloured dot is a run. */
 const MARK: Record<string, string> = { finished: "✓", failed: "✕", died: "✕", stalled: "!", pending: "…", ended: "–", running: "" };
 export const Badge = ({ run }: { run: Pick<Run, "state" | "why"> }) => <span className={"state " + run.state} title={run.why || ""}><i aria-hidden>{MARK[run.state] ?? ""}</i>{run.state}</span>;
 
-type Shared = { runs: Run[]; theme: string; say: (text: string) => void };
+type Shared = { runs: Run[]; theme: string; say: (text: string) => void; about: Record<string, string>; setAbout: (name: string, text: string) => void };
 
-export function Workspace({ runs, theme, say }: Shared) {
+export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
   const [filter, setFilter] = useStored("filter", "");
   const [groupBy, setGroupBy] = useStored("groupBy", "");
   const [sortBy, setSortBy] = useStored("sortBy", "newest");
@@ -21,7 +21,7 @@ export function Workspace({ runs, theme, say }: Shared) {
   const [x, setX] = useStored("x", "step");
   const [smooth, setSmooth] = useStored("smooth", 0);
   const [logs, setLogs] = useStored<Record<string, boolean>>("logs", {});
-  const [railHidden, setRailHidden] = useStored("railHidden", false);
+  const [choosing, setChoosing] = useState(false);
   const [trim, setTrim] = useStored("trim", false);
   const [bundled, setBundled] = useStored("bundled", false);
   const [range, setRange] = useState<[number, number] | null>(null);
@@ -70,7 +70,7 @@ export function Workspace({ runs, theme, say }: Shared) {
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
   const view: View = {
     x: xNow, xLabel: xChoices.find(c => c[0] === xNow)![1].replace("time (minutes)", "minutes"), smooth, logs, theme, tickN: grown,
-    range, setRange, trim, bundled: asGroups,
+    range, setRange, trim, bundled: asGroups, about, setAbout,
     setLog: (key, on) => setLogs(old => ({ ...old, [key]: on })),
   };
   const plain = numbers.filter(k => !k.startsWith("sys/") && !k.includes(".") && !clocks.includes(k));
@@ -97,12 +97,12 @@ export function Workspace({ runs, theme, say }: Shared) {
   }
 
   return (
-    <div className={"workspace" + (railHidden ? " solo" : "")}>
-      {!railHidden && <aside className="runs" aria-label="Runs">
+    <div className="workspace">
+      {choosing && <div className="modal side" onClick={() => setChoosing(false)}><aside className="runs" aria-label="Choose runs" onClick={e => e.stopPropagation()}>
         <div className="row">
-          <h2>Runs</h2><span className="muted small">The dot draws a run or hides it</span><span className="grow" />
-          <button className="small ghost" title="Hide this list and give the charts the whole width" onClick={() => setRailHidden(true)}>Hide</button>
+          <h2>Choose runs</h2><span className="grow" /><button className="small" onClick={() => setChoosing(false)}>Done</button>
         </div>
+        <p className="muted small">Click a run's dot to draw it on the charts or take it off. Click its name to open it.</p>
         <input type="search" placeholder="Filter runs: a name, a tag, lam=0.2" value={filter} aria-label="Filter the runs" onChange={e => setFilter(e.target.value)} />
         <div className="row small muted">
           <label className="inline">Group by<select value={groupBy} onChange={e => setGroupBy(e.target.value)}>
@@ -122,12 +122,12 @@ export function Workspace({ runs, theme, say }: Shared) {
           {groups.map(([label, list]) => (
             <div key={label}>
               {groupBy && <div className="grouphead">
-                <label className="dot" title={`Draw or hide all of ${label}`} style={{ "--c": asGroups ? slotVar(slots[label] ?? 0) : "var(--fg)" } as React.CSSProperties}>
+                <label className="dot" data-tip={`Draw or hide all of ${label}`} style={{ "--c": asGroups ? slotVar(slots[label] ?? 0) : "var(--fg)" } as React.CSSProperties}>
                   <input type="checkbox" aria-label={`draw all of ${label}`} checked={list.every(r => isOn(r.id))} onChange={e => toggle(list.map(r => r.id), e.target.checked)} /><i /></label>
                 <b>{groupBy} {label}</b><span>{list.length} run{list.length === 1 ? "" : "s"}</span></div>}
               {list.map(r => (
                 <div key={r.id} className={"runrow" + (isOn(r.id) ? " on" : "")}>
-                  <label className="dot" title={isOn(r.id) ? "Drawn. Click to hide." : "Click to draw."} style={{ "--c": slotVar(slotOf(r)) } as React.CSSProperties}>
+                  <label className="dot" data-tip={isOn(r.id) ? "Drawn. Click to hide." : "Click to draw."} style={{ "--c": slotVar(slotOf(r)) } as React.CSSProperties}>
                     <input type="checkbox" checked={isOn(r.id)} aria-label={`draw ${r.name}`} onChange={e => toggle([r.id], e.target.checked)} /><i /></label>
                   <div className="who"><a href={runHref(r.id)} title={r.id}>{r.name}</a>
                     <span className="sub">{sub.filter(k => r.settings[k] !== undefined).map(k => <span key={k}><b>{k}</b>{fmt(r.settings[k])}</span>)}</span></div>
@@ -138,11 +138,23 @@ export function Workspace({ runs, theme, say }: Shared) {
           ))}
           {!runs.length && <div className="muted small" style={{ padding: "14px 0" }}>No runs yet. Say where runs are written, then copy them:<pre>rt source add NAME --root /path/to/runs --ssh HOST{"\n"}rt sync</pre></div>}
         </div>
-      </aside>}
+      </aside></div>}
 
       <section className="main">
+        <div className="runstrip" aria-label="The runs, and which are drawn">
+          <span className="muted small lead">{runs.length} run{runs.length === 1 ? "" : "s"}{runs.some(going) ? `, ${runs.filter(going).length} still going` : ""}</span>
+          {shown.slice(0, 12).map(r => (
+            <span key={r.id} className={"chip" + (isOn(r.id) ? " on" : "")}>
+              <label className="dot" data-tip={isOn(r.id) ? "Drawn. Click to take it off the charts." : "Click to draw it on the charts."} style={{ "--c": slotVar(slotOf(r)) } as React.CSSProperties}>
+                <input type="checkbox" checked={isOn(r.id)} aria-label={`draw ${r.name}`} onChange={e => toggle([r.id], e.target.checked)} /><i /></label>
+              <a href={runHref(r.id)} data-tip={[r.state, r.step == null ? "" : "step " + fmt(r.step), ...sub.filter(k => r.settings[k] !== undefined).map(k => `${k} ${fmt(r.settings[k])}`)].filter(Boolean).join(", ")}>{r.name}</a>
+              {going(r) && <Badge run={r} />}
+            </span>))}
+          {shown.length > 12 && <button className="small ghost" onClick={() => setChoosing(true)}>and {shown.length - 12} more</button>}
+          <span className="grow" />
+          <button className="small" data-tip="Filter, group and sort the runs, and pick which are drawn" onClick={() => setChoosing(true)}>Choose runs</button>
+        </div>
         <div className="row toolbar">
-          {railHidden && <button className="small" title="Bring back the list of runs" onClick={() => setRailHidden(false)}>Runs ({drawnRuns.length} of {shown.length} drawn)</button>}
           <div className="tabs" role="tablist">
             {[["charts", "Charts"], ["table", "Table"], ["settings", "Settings"], ["sweep", "Against a setting"]].map(([k, label]) =>
               <button key={k} role="tab" aria-selected={tab === k} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
@@ -150,16 +162,16 @@ export function Workspace({ runs, theme, say }: Shared) {
           <span className="grow" />
           {tab === "charts" && <>
             {range && <button className="small" onClick={() => setRange(null)}>Reset zoom</button>}
-            {groupBy && <button className="small" aria-pressed={bundled} title="Draw each group as one line, the mean of its runs, with a band from the lowest to the highest" onClick={() => setBundled(!bundled)}>One line per group</button>}
-            <button className="small" aria-pressed={trim} title="Fit each y axis to the middle 96% of the values, so one spike does not flatten the rest" onClick={() => setTrim(!trim)}>Ignore outliers</button>
+            {groupBy && <button className="small" aria-pressed={bundled} data-tip="Draw each group as one line, the mean of its runs, with a band from the lowest to the highest" onClick={() => setBundled(!bundled)}>One line per group</button>}
+            <button className="small" aria-pressed={trim} data-tip="Fit each y axis to the middle 96% of the values, so one spike does not flatten the rest" onClick={() => setTrim(!trim)}>Ignore outliers</button>
             <label className="inline">Against<select value={xNow} onChange={e => { setX(e.target.value); setRange(null); }}>{xChoices.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-            <label className="inline" title="A running average. The line as logged stays behind it, faint.">Smoothing
+            <label className="inline" data-tip="A running average. The line as logged stays behind it, faint.">Smoothing
               <input type="range" min={0} max={0.99} step={0.01} value={smooth} onChange={e => setSmooth(+e.target.value)} /><span>{smooth.toFixed(2)}</span></label>
             <button className="small" onClick={exportPage}>Export page</button>
           </>}
         </div>
 
-        {tab === "charts" && <ChartSections numbers={numbers} clocks={clocks} runs={drawn} view={view} sync="ws" legend={railHidden} />}
+        {tab === "charts" && <ChartSections numbers={numbers} clocks={clocks} runs={drawn} view={view} sync="ws" />}
 
         {tab === "table" && <RunTable runs={shown} diff={diff} metrics={plain} slotOf={slotOf} isOn={isOn} toggle={toggle} />}
         {tab === "settings" && <SettingsDiff runs={drawnRuns} slotOf={slotOf} />}

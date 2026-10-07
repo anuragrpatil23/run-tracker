@@ -14,6 +14,17 @@ import { api, cssColour, enc, fmt, Run, Series, tick, useSeen } from "./lib";
 
 export type Line = { label: string; slot: number; x: number[]; y: number[]; lo?: number[]; hi?: number[]; members?: number };
 type Range = [number, number] | null;
+
+/* Small line drawings for buttons. Each button that carries one has a label for screen readers and says what it does
+   in a tip when pointed at. */
+const DRAWINGS = {
+  expand: "M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9",
+  pin: "M6 2h4l-.5 4 2 2.5h-7l2-2.5zM8 8.5V14",
+  hide: "M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4zM3 13 13 3",
+  chevron: "M4 6l4 4 4-4",
+};
+export const Icon = ({ name }: { name: keyof typeof DRAWINGS }) =>
+  <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={DRAWINGS[name]} /></svg>;
 type Col = { label: string; colour: string; role: "line" | "logged" | "edge"; line: number };
 
 /* Smoothing as a running average that leans on the past by `a` (0 none, towards 1 heavy), corrected so the
@@ -60,7 +71,7 @@ export function bundle(label: string, slot: number, members: Line[]): Line {
 }
 
 function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values: (number | null)[]) => void, quiet: boolean): uPlot.Plugin {
-  let tip: HTMLDivElement, near = -1, inside = false;
+  let tip: HTMLDivElement, near = -1;
   const show = (u: uPlot) => {
     const { left, idx } = u.cursor;
     if (idx == null || left == null || left < 0) { tip.hidden = true; onHover(null, []); return; }
@@ -76,7 +87,9 @@ function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values
     });
     onHover(u.data[0][idx], values);
     tip.replaceChildren();
-    const head = document.createElement("div"); head.className = "x"; head.textContent = `${xLabel} ${fmt(u.data[0][idx])}`;
+    const head = document.createElement("div"); head.className = "x";
+    const at = document.createElement("b"); at.textContent = fmt(u.data[0][idx]);
+    head.append(xLabel + " ", at);
     tip.append(head);
     for (const r of rows.sort((a, b) => b.v - a.v).slice(0, 14)) {
       const row = document.createElement("div"); row.className = "r" + (near > 0 && rows.length > 1 ? (r.i === near ? " near" : " far") : "");
@@ -87,7 +100,8 @@ function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values
     }
     // Every chart on the page follows the pointer with its hairline and dots; only the one under the pointer
     // spells the values out, or seven boxes would open at once. The inspector shows them in its table instead.
-    tip.hidden = quiet || !inside;
+    if (rows.length > 14) { const more = document.createElement("div"); more.className = "more"; more.textContent = `and ${rows.length - 14} more, lower`; tip.append(more); }
+    tip.hidden = quiet || !u.over.matches(":hover");
     const over = u.over, w = tip.offsetWidth, x = over.offsetLeft + left;
     tip.style.left = (x + 16 + w > u.root.clientWidth ? Math.max(0, x - w - 16) : x + 16) + "px";
     tip.style.top = over.offsetTop + 2 + "px";
@@ -96,8 +110,7 @@ function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values
     hooks: {
       init: u => {
         tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; u.root.appendChild(tip);
-        u.over.addEventListener("mouseenter", () => { inside = true; });
-        u.over.addEventListener("mouseleave", () => { inside = false; tip.hidden = true; });
+        u.over.addEventListener("mouseleave", () => { tip.hidden = true; });
       },
       setCursor: show,
       setSeries: (u, i) => { near = i ?? -1; show(u); },
@@ -233,7 +246,19 @@ export type Drawn = { id: string; name: string; slot: number; group?: string };
 export type View = {
   x: string; xLabel: string; smooth: number; logs: Record<string, boolean>; setLog: (key: string, on: boolean) => void; theme: string; tickN: number;
   range?: Range; setRange?: (r: Range) => void; trim?: boolean; bundled?: boolean;
+  about: Record<string, string>; setAbout: (name: string, text: string) => void;
 };
+
+/* A sentence under a chart or a section saying what it shows. It comes from the training script if the script said,
+   and anyone reading can rewrite it: click, type, Enter. */
+export function About({ name, fallback = "", view }: { name: string; fallback?: string; view: View }) {
+  const [editing, setEditing] = useState(false);
+  const shown = view.about[name] ?? fallback;
+  if (editing) return <input className="about-edit" autoFocus defaultValue={shown} placeholder="What does this show? One sentence." aria-label={`what ${name} shows`}
+    onBlur={e => { setEditing(false); if (e.target.value.trim() !== shown) view.setAbout(name, e.target.value); }}
+    onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = shown; e.currentTarget.blur(); } }} />;
+  return <button className={"about" + (shown ? "" : " blank")} onClick={() => setEditing(true)} data-tip={shown ? "Click to rewrite" : undefined}>{shown || "Say what this shows"}</button>;
+}
 
 function download(name: string, href: string) {
   const a = document.createElement("a"); a.href = href; a.download = name; a.click();
@@ -326,20 +351,24 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
   }, [data, runs, name, x, view.bundled]);
   const logY = view.logs[name] ?? wantsLog(lines);
   const xLabel = x === "_t" ? "minutes" : view.xLabel;
-  const only = lines.length === 1 && lines[0].y.length ? lines[0].y[lines[0].y.length - 1] : null;
+  // Beside the name: where the number stands now. One run: its latest value. Several: the span of their latest values.
+  const latest = lines.filter(l => l.y.length).map(l => l.y[l.y.length - 1]);
+  const stands = !latest.length ? "" : latest.length === 1 ? fmt(latest[0])
+    : Math.min(...latest) === Math.max(...latest) ? fmt(latest[0]) : `${fmt(Math.min(...latest))} to ${fmt(Math.max(...latest))}`;
   const close = useCallback(() => setBig(false), []);
   return (
     <figure className="chart" ref={ref}>
       <figcaption>
         <span className="t" title={name}>{title ?? name}</span>
-        {only != null && <span className="now" title="the latest value">{fmt(only)}</span>}
+        {stands && <span className="now" data-tip={latest.length === 1 ? "The latest value" : "The lowest and highest of the runs' latest values"}>{stands}</span>}
         <span className="tools">
-          <button aria-pressed={logY} title="log scale on the y axis" onClick={() => view.setLog(name, !logY)}>log</button>
-          <button title="open large, with a table of every run's latest, lowest and highest" aria-label={`inspect ${name}`} onClick={() => setBig(true)}>inspect</button>
-          {onPin && <button aria-pressed={!!pinned} title={pinned ? "Take this chart out of Pinned" : "Keep this chart in the Pinned section at the top"} onClick={onPin}>{pinned ? "pinned" : "pin"}</button>}
-          {onHide && <button title="hide this chart" aria-label={`hide ${name}`} onClick={onHide}>hide</button>}
+          <button className="word" aria-pressed={logY} data-tip={logY ? "Log scale. Click for a plain scale." : "Plain scale. Click for a log scale."} onClick={() => view.setLog(name, !logY)}>log</button>
+          {onPin && <button aria-pressed={!!pinned} aria-label={pinned ? `unpin ${name}` : `pin ${name}`} data-tip={pinned ? "Pinned. Click to unpin." : "Pin to the top"} onClick={onPin}><Icon name="pin" /></button>}
+          {onHide && <button aria-label={`hide ${name}`} data-tip="Hide this chart" onClick={onHide}><Icon name="hide" /></button>}
+          <button aria-label={`inspect ${name}`} data-tip="Inspect: open large, with every run's latest, lowest and highest" onClick={() => setBig(true)}><Icon name="expand" /></button>
         </span>
       </figcaption>
+      <About name={name} view={view} />
       {data
         ? <Chart lines={lines} xLabel={xLabel} logY={logY} smooth={view.smooth} syncKey={sync} height={height} theme={view.theme}
             range={x === "_t" ? undefined : view.range} onRange={x === "_t" ? undefined : view.setRange} trim={view.trim} />

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from . import store, wandbfile
 
-VERSION = 2
+VERSION = 3
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, sig TEXT, lines INTEGER, sys INTEGER, summary TEXT) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS keys(run TEXT, key TEXT, kind TEXT, n INTEGER, last, lo REAL, hi REAL, mono INTEGER,

@@ -58,7 +58,8 @@ function Words({ id, name, find, at, grown }: { id: string; name: string; find: 
   );
 }
 
-export function RunPage({ id, query, theme, say }: { id: string; query: URLSearchParams; theme: string; say: (t: string) => void }) {
+export function RunPage({ id, query, theme, say, about, setAbout }:
+  { id: string; query: URLSearchParams; theme: string; say: (t: string) => void; about: Record<string, string>; setAbout: (name: string, text: string) => void }) {
   const { data: d, error, reload } = usePoll<Detail>(() => api(`/api/run?id=${enc(id)}`), 5000, [id]);
   const grown = d?.lines ?? 0;
   const { data: keyMap } = usePoll<Record<string, KeyInfo[]>>(() => api(`/api/v2/keys?runs=${enc(id)}`), 0, [id, grown]);
@@ -73,7 +74,7 @@ export function RunPage({ id, query, theme, say }: { id: string; query: URLSearc
   const clocks = keys.filter(k => k.kind === "number" && k.mono && (k.hi ?? 0) > (k.lo ?? 0) && !k.key.includes(".") && !k.key.startsWith("sys/")).map(k => k.key);
   const xChoices: [string, string][] = [["step", "step"], ...clocks.map(k => [k, k] as [string, string]), ["_t", "time (minutes)"]];
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
-  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim };
+  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim, about, setAbout };
   const drawn = useMemo(() => (d ? [{ id, name: d.name, slot: 1 }] : []), [id, d?.name]);
   const machine = numbers.filter(k => k.startsWith("sys/"));
   const wordGroups = [...new Set(keys.filter(k => k.kind === "words").map(k => (k.key.includes(".") ? k.key.split(".").slice(0, -1).join(".") : k.key)))];
@@ -116,7 +117,7 @@ export function RunPage({ id, query, theme, say }: { id: string; query: URLSearc
         <span className="grow" />
         {tab === "charts" && <>
           {range && <button className="small" onClick={() => setRange(null)}>Reset zoom</button>}
-          <button className="small" aria-pressed={trim} title="Fit each y axis to the middle 96% of the values" onClick={() => setTrim(!trim)}>Ignore outliers</button>
+          <button className="small" aria-pressed={trim} data-tip="Fit each y axis to the middle 96% of the values" onClick={() => setTrim(!trim)}>Ignore outliers</button>
           <label className="inline">Against<select value={xNow} onChange={e => { setX(e.target.value); setRange(null); }}>{xChoices.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
           <label className="inline">Smoothing<input type="range" min={0} max={0.99} step={0.01} value={smooth} onChange={e => setSmooth(+e.target.value)} /><span>{smooth.toFixed(2)}</span></label>
         </>}

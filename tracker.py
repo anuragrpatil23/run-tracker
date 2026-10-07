@@ -263,6 +263,23 @@ class Run:
         except Exception as e:
             _warn("register a saved file", e)
 
+    def describe(self, texts=None, **more):
+        """Say in a sentence what each logged name means, so the viewer can show it under the chart.
+
+            run.describe(not_rebuilt="The share of the input the network failed to rebuild. Lower is better.",
+                         sky="The strongest feature for the word sky, and what it responds to.")
+
+        A name can be a field ("not_rebuilt"), a nested field ("sky.fired") or the object that holds it ("sky").
+        """
+        try:
+            texts = dict(texts or {}, **more)
+            with self._lock:
+                meta = _read(self._p("meta.json"), {}) or {}
+                meta.setdefault("about", {}).update({str(k): str(v) for k, v in texts.items()})
+                _replace(self._p("meta.json"), meta)
+        except Exception as e:
+            _warn("write the descriptions to meta.json", e)
+
     def finish(self):
         """Mark the run finished. Called for you when the script ends normally."""
         self._close("finished")

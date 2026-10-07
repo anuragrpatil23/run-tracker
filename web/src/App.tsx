@@ -40,6 +40,10 @@ export function App() {
   const [toast, setToast] = useState("");
   const [q, setQ] = useState("");
   const { data, reload } = usePoll<Listing>(() => api("/api/v2/runs"), 5000, []);
+  // what each logged name means, in a sentence: from the training scripts, or written here
+  const [about, setAboutMap] = useState<Record<string, string>>({});
+  useEffect(() => { api("/api/v2/about").then(setAboutMap, () => {}); }, [data?.runs.length]);
+  const setAbout = useCallback((key: string, text: string) => { api("/api/v2/about", { key, text }).then(setAboutMap, e => say(e.message)); }, []);
   // Before the charts redraw: they read their colours off the page, so the page must already be in the new theme.
   useLayoutEffect(() => { theme ? document.documentElement.setAttribute("data-theme", theme) : document.documentElement.removeAttribute("data-theme"); }, [theme]);
   const say = useCallback((text: string) => { setToast(text); setTimeout(() => setToast(t => (t === text ? "" : t)), 5000); }, []);
@@ -61,17 +65,17 @@ export function App() {
         {sync && (sync.busy || sync.error || sync.last) && (
           <span className={"sync" + (sync.busy ? " busy" : sync.error ? " bad" : "")} title={sync.error ? sync.error : (sync.lines ?? []).join("\n")}>
             <i />{sync.busy ? "Copying" : sync.error ? "A source could not be reached" : `Copied ${dur((data?.now ?? 0) - (sync.last ?? 0))} ago`}</span>)}
-        <button className="small" disabled={sync?.busy} title={sync?.error ?? "Copy what is new from the sources"} onClick={syncNow}>{sync?.error ? "Try again" : "Sync"}</button>
+        <button className="small" disabled={sync?.busy} data-tip={sync?.error ?? "Copy what is new from the sources"} onClick={syncNow}>{sync?.error ? "Try again" : "Sync"}</button>
         <form role="search" onSubmit={e => { e.preventDefault(); if (q.trim()) location.hash = "#/search/" + enc(q.trim()); }}>
           <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search the words runs logged" aria-label="Search the words logged in every run" />
         </form>
-        <button className="small ghost" title="Switch between light and dark" onClick={() => setTheme(shownTheme === "dark" ? "light" : "dark")}>{shownTheme === "dark" ? "Light" : "Dark"}</button>
+        <button className="small ghost" data-tip="Switch between light and dark" onClick={() => setTheme(shownTheme === "dark" ? "light" : "dark")}>{shownTheme === "dark" ? "Light" : "Dark"}</button>
       </nav>
       <main>
         {!data ? <p className="muted">Loading…</p>
-          : kind === "run" && arg ? <RunPage key={arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} />
+          : kind === "run" && arg ? <RunPage key={arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} />
           : kind === "search" && arg ? <Search q={decodeURIComponent(arg)} runs={runs} />
-          : <Workspace runs={runs} theme={shownTheme} say={say} />}
+          : <Workspace runs={runs} theme={shownTheme} say={say} about={about} setAbout={setAbout} />}
       </main>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

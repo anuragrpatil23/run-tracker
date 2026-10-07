@@ -5,10 +5,10 @@
    puts it in a section of its own at the top. A bar that stays in view lists the sections: click one to open it and
    go there. Only Pinned and Main start open. */
 import { useMemo, useRef, useState } from "react";
-import { Drawn, Panel, View } from "./Chart";
+import { About, Drawn, Icon, Panel, View } from "./Chart";
 import { useStored } from "./lib";
 
-type Section = { id: string; title: string; keys: string[] };
+type Section = { id: string; title: string; about: string; keys: string[] };
 const SIZES = { s: { min: 250, height: 140 }, m: { min: 360, height: 200 }, l: { min: 560, height: 300 } };
 
 function sectionOf(key: string): string {
@@ -19,8 +19,8 @@ function sectionOf(key: string): string {
 const shortName = (key: string, section: string) =>
   section === "sys" ? key.slice(4) : section !== "main" && section !== "pinned" && key.startsWith(section) ? key.slice(section.length + 1) : key;
 
-export function ChartSections({ numbers, clocks, runs, view, sync, legend }:
-  { numbers: string[]; clocks: string[]; runs: Drawn[]; view: View; sync: string; legend?: boolean }) {
+export function ChartSections({ numbers, clocks, runs, view, sync }:
+  { numbers: string[]; clocks: string[]; runs: Drawn[]; view: View; sync: string }) {
   const [pinned, setPinned] = useStored<string[]>("pinned", []);
   const [hidden, setHidden] = useStored<string[]>("hiddenPanels", []);
   const [open, setOpen] = useStored<Record<string, boolean>>("sectionsOpen", {});
@@ -35,10 +35,10 @@ export function ChartSections({ numbers, clocks, runs, view, sync, legend }:
     const rest = [...by.keys()].filter(s => s !== "main" && s !== "sys").sort();
     const out: Section[] = [];
     const pins = pinned.filter(k => charts.includes(k));
-    if (pins.length) out.push({ id: "pinned", title: "Pinned", keys: pins });
-    if (by.has("main")) out.push({ id: "main", title: "Main", keys: by.get("main")! });
-    for (const s of rest) out.push({ id: s, title: s, keys: by.get(s)! });
-    if (by.has("sys")) out.push({ id: "sys", title: "The machine", keys: by.get("sys")! });
+    if (pins.length) out.push({ id: "pinned", title: "Pinned", about: "The charts you chose to keep at the top", keys: pins });
+    if (by.has("main")) out.push({ id: "main", title: "Main", about: "The numbers the run logged at each step", keys: by.get("main")! });
+    for (const s of rest) out.push({ id: s, title: s, about: `Everything the run logged under “${s}”`, keys: by.get(s)! });
+    if (by.has("sys")) out.push({ id: "sys", title: "The machine", about: "GPU, memory and processor, against minutes since the run began", keys: by.get("sys")! });
     return out;
   }, [numbers, clocks, hidden, pinned]);
 
@@ -61,29 +61,30 @@ export function ChartSections({ numbers, clocks, runs, view, sync, legend }:
     <div className="sections" ref={box}>
       <div className="secnav">
         <div className="chips" role="toolbar" aria-label="Sections of charts">
-          {sections.map(s => <button key={s.id} className="small" aria-pressed={isOpen(s)} title={isOpen(s) ? "Close this section" : "Open this section and go to it"}
+          {sections.map(s => <button key={s.id} className="small" aria-pressed={isOpen(s)} data-tip={isOpen(s) ? "Close this section" : "Open this section and go to it"}
             onClick={() => goTo(s)}>{s.title} <span className="count">{matching(s).length}</span></button>)}
         </div>
         <span className="grow" />
         <input type="search" value={find} onChange={e => setFind(e.target.value)} placeholder={`Find among ${total} charts`} aria-label="Find a chart by name" />
         <div className="seg" role="group" aria-label="Size of the charts">
-          {(["s", "m", "l"] as const).map(k => <button key={k} className="small" aria-pressed={size === k} title={{ s: "Small charts, more to a row", m: "Medium charts", l: "Large charts" }[k]}
+          {(["s", "m", "l"] as const).map(k => <button key={k} className="small" aria-pressed={size === k} data-tip={{ s: "Small charts, more to a row", m: "Medium charts", l: "Large charts, one or two to a row" }[k]}
             onClick={() => setSize(k)}>{k.toUpperCase()}</button>)}
         </div>
         <button className="small ghost" onClick={() => setOpen(Object.fromEntries(sections.map(s => [s.id, !sections.every(isOpen)])))}>{sections.every(isOpen) ? "Close all" : "Open all"}</button>
       </div>
-      {legend && runs.length > 1 && <div className="legend">{[...new Map(runs.map(r => [r.group ?? r.id, r])).values()].map(r =>
-        <span key={r.id}><i className="swatch" style={{ background: r.slot ? `var(--s${r.slot})` : "var(--faint)" }} />{r.group ?? r.name}</span>)}</div>}
 
       {sections.map(s => {
         const keys = matching(s);
         if (q && !keys.length) return null;
         return (
           <section key={s.id} data-section={s.id} className={"sec" + (isOpen(s) ? " open" : "")}>
-            <button className="sechead" aria-expanded={isOpen(s)} onClick={() => set(s.id, !isOpen(s))}>
-              <span className="mark" aria-hidden>{isOpen(s) ? "–" : "+"}</span>{s.title}
-              <span className="muted">{keys.length} chart{keys.length === 1 ? "" : "s"}{s.id === "sys" ? ", against minutes since the run began" : ""}</span>
-            </button>
+            <div className="sechead">
+              <button className="toggle" aria-expanded={isOpen(s)} onClick={() => set(s.id, !isOpen(s))}>
+                <span className="chev"><Icon name="chevron" /></span><span className="title">{s.title}</span>
+              </button>
+              <span className="count">{keys.length} chart{keys.length === 1 ? "" : "s"}</span>
+              <About name={"section:" + s.id} fallback={s.about} view={view} />
+            </div>
             {isOpen(s) && <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill,minmax(min(100%,${SIZES[size].min}px),1fr))` }}>
               {keys.map(k => <Panel key={k} name={k} title={shortName(k, s.id)} runs={runs} view={view} sync={s.id === "sys" ? sync + "-sys" : sync} height={SIZES[size].height}
                 pinned={pinned.includes(k)} onPin={() => pin(k)} onHide={() => setHidden([...hidden, k])} />)}

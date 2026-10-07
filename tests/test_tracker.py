@@ -249,6 +249,16 @@ class Index(unittest.TestCase):
         self.assertEqual((found[0]["run"], found[0]["fields"][0]["first_step"], found[0]["fields"][0]["count"]), ("here/a", 300.0, 70))
         self.assertEqual(self.index.search("ammon\" "), [])
 
+    def test_what_a_name_means_comes_from_the_script_and_can_be_rewritten_in_the_viewer(self):
+        self.run.describe(loss="How wrong it is.", sky="The strongest feature for sky.")
+        self.run.log(1000, loss=0.5)
+        said = self.store.about(self.index.refresh())
+        self.assertEqual((said["loss"], said["sky"]), ("How wrong it is.", "The strongest feature for sky."))
+        self.store.set_about("loss", "Lower is better.")
+        self.store.set_about("section:sky", "About the word sky.")
+        said = self.store.about(self.index.refresh())
+        self.assertEqual((said["loss"], said["sky"], said["section:sky"]), ("Lower is better.", "The strongest feature for sky.", "About the word sky."))
+
     def test_it_follows_a_run_that_grows_and_one_that_is_replaced(self):
         self.index.refresh()
         self.run.log(1000, loss=0.5)

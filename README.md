@@ -77,6 +77,10 @@ one that is still going. When the script ends it marks the run finished, or fail
 error. If a write fails (a full disk, a folder that cannot be written) it warns once on stderr
 and the training carries on.
 
+`run.describe(not_rebuilt="The share of the input the network failed to rebuild.")` says in a
+sentence what a logged name means; the viewer shows it under that chart. The same sentence can be
+written or rewritten in the viewer by clicking it.
+
 The folder it writes is described in [docs/format.md](docs/format.md).
 
 ## The sync

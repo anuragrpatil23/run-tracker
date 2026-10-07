@@ -275,6 +275,7 @@ def summary(run_id, path, now=None):
         "prediction": local.get("prediction", meta.get("prediction", "")),
         "synced": sync.get("time"), "job": sync.get("job"),
         "commit": (meta.get("git") or {}).get("commit"), "dirty": (meta.get("git") or {}).get("dirty"),
+        "about": meta.get("about") or {},
     }
 
 
@@ -341,6 +342,28 @@ def set_local(run_id, changes):
     local["changed"] = time.time()
     write_json(path / "_local.json", local)
     return local
+
+
+def about(summaries):
+    """What each logged name means, in a sentence: {name: text}.
+
+    Training scripts can say (run.describe in the writer); what is written in the viewer is kept in about.json in the
+    data folder and wins over what a script said. A section of charts is described under "section:<name>".
+    """
+    out = {}
+    for s in summaries:
+        out.update(s.get("about") or {})
+    out.update(read_json(data_dir() / "about.json", {}) or {})
+    return out
+
+
+def set_about(key, text):
+    mine = read_json(data_dir() / "about.json", {}) or {}
+    if text.strip():
+        mine[key] = text.strip()
+    else:
+        mine[key] = ""                                      # written as empty, so a script's text is hidden, not restored
+    write_json(data_dir() / "about.json", mine)
 
 
 def set_notes(run_id, text):
