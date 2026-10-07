@@ -156,8 +156,10 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
         </div>
         <div className="row toolbar">
           <div className="tabs" role="tablist">
-            {[["charts", "Charts"], ["table", "Table"], ["settings", "Settings"], ["sweep", "Against a setting"]].map(([k, label]) =>
-              <button key={k} role="tab" aria-selected={tab === k} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
+            {[["charts", "Charts", "What the drawn runs logged, as charts"], ["table", "All runs", "Every run in a table, with how it was started and its latest numbers"],
+              ["settings", "What differs", "How the drawn runs were started, side by side: learning rate, size and so on"],
+              ["sweep", "Result by setting", "One dot per run: a result against one of the values the runs were started with"]].map(([k, label, tip]) =>
+              <button key={k} role="tab" aria-selected={tab === k} data-tip={tip} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
           </div>
           <span className="grow" />
           {tab === "charts" && <>
@@ -215,8 +217,8 @@ function SettingsDiff({ runs, slotOf }: { runs: Run[]; slotOf: (r: Run) => numbe
   if (!runs.length) return <p className="muted">Tick runs on the left to set their settings side by side.</p>;
   return (
     <div className="panel">
-      <div className="row"><h2>{all ? "Every setting" : "Where the settings differ"}</h2><span className="grow" />
-        <button className="small" aria-pressed={all} onClick={() => setAll(!all)}>show every setting</button></div>
+      <div className="row"><h2>{all ? "Everything the runs were started with" : "What the runs were started with, where they differ"}</h2><span className="grow" />
+        <button className="small" aria-pressed={all} onClick={() => setAll(!all)}>Show the ones that are the same too</button></div>
       <div className="scroll"><table>
         <thead><tr><th>setting</th>{runs.map(r => <th key={r.id} className="num"><i className="swatch" style={{ background: slotVar(slotOf(r)) }} /><a href={runHref(r.id)}>{r.name}</a></th>)}</tr></thead>
         <tbody>{keys.map(k => <tr key={k} className={diff.includes(k) && all ? "sel" : ""}><td>{k}</td>
