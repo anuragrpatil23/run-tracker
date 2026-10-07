@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type Run = {
-  id: string; name: string; source: string; format: string; project: string | null; group: string | null;
+  id: string; name: string; source: string; format: string; project: string; group: string | null;
   state: string; why: string; step: number | null; total: number | null; lines: number;
   started: number | null; ended: number | null; seconds: number | null;
   settings: Record<string, unknown>; latest: Record<string, number>;
@@ -68,18 +68,25 @@ export function differing(runs: Run[]): string[] {
     .filter(k => runs.length === 1 || !has(k).every(r => typeof r.settings[k] === "string" && (r.settings[k] as string).includes(r.name)));
 }
 
-/* State kept in the browser under a name, so a reload brings the page back as it was. */
-export function useStored<T>(key: string, initial: T): [T, (v: T | ((old: T) => T)) => void] {
+/* Which project the page is showing. What a reader sets up (runs chosen, charts pinned, sections open) belongs to the
+   project it was set up in, so it is remembered under the project's name. */
+let scope = "";
+export const setScope = (project: string) => { scope = project; };
+
+/* State kept in the browser under a name, so a reload brings the page back as it was. It is kept per project unless
+   `everywhere` is set, as for the theme. A component that uses it is made afresh when the project changes. */
+export function useStored<T>(key: string, initial: T, everywhere = false): [T, (v: T | ((old: T) => T)) => void] {
+  const [at] = useState(() => "trt." + (everywhere ? "" : scope + "/") + key);
   const [value, setValue] = useState<T>(() => {
-    try { const s = localStorage.getItem("trt." + key); return s == null ? initial : (JSON.parse(s) as T); } catch { return initial; }
+    try { const s = localStorage.getItem(at); return s == null ? initial : (JSON.parse(s) as T); } catch { return initial; }
   });
   const set = useCallback((v: T | ((old: T) => T)) => {
     setValue(old => {
       const next = typeof v === "function" ? (v as (o: T) => T)(old) : v;
-      try { localStorage.setItem("trt." + key, JSON.stringify(next)); } catch { /* private window: keep it in memory only */ }
+      try { localStorage.setItem(at, JSON.stringify(next)); } catch { /* private window: keep it in memory only */ }
       return next;
     });
-  }, [key]);
+  }, [at]);
   return [value, set];
 }
 

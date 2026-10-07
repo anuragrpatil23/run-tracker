@@ -211,6 +211,7 @@ class WandbFile(unittest.TestCase):
         self.assertTrue((here / "run-eyv8dqyf.wandb").is_file()); self.assertFalse((here / "logs").exists())
         s = self.store.summary(run_id, here)
         self.assertEqual((s["name"], s["state"], s["step"], s["format"], s["project"]), ("trial_lam0.2", "finished", 390, "wandb", "sae-trial"))
+        self.assertEqual(self.store.summary("x/plain", self.store.runs_dir() / "nowhere")["project"], "x")     # no project named: the source stands in
         self.assertEqual(s["settings"], {"lam": 0.2, "features": 8192, "nested.lr": 0.0002})
         self.assertEqual(self.store.search("heavens")[0]["fields"][0]["field"], "sky.responds_to")
 
@@ -252,21 +253,23 @@ class Index(unittest.TestCase):
     def test_what_a_name_means_comes_from_the_script_and_can_be_rewritten_in_the_viewer(self):
         self.run.describe(loss="How wrong it is.", sky="The strongest feature for sky.")
         self.run.log(1000, loss=0.5)
-        said = self.store.about(self.index.refresh())
+        said = self.store.about(self.index.refresh(), "here")
         self.assertEqual((said["loss"], said["sky"]), ("How wrong it is.", "The strongest feature for sky."))
-        self.store.set_about("loss", "Lower is better.")
-        self.store.set_about("section:sky", "About the word sky.")
-        said = self.store.about(self.index.refresh())
+        self.store.set_about("here", "loss", "Lower is better.")
+        self.store.set_about("here", "section:sky", "About the word sky.")
+        said = self.store.about(self.index.refresh(), "here")
         self.assertEqual((said["loss"], said["sky"], said["section:sky"]), ("Lower is better.", "The strongest feature for sky.", "About the word sky."))
+        self.assertEqual(self.store.about(self.index.refresh(), "another-project"), {})          # nothing is shared between projects
 
     def test_a_chart_can_be_worked_out_by_formula_from_what_was_logged(self):
         from runtracker import derived
         self.index.refresh()
-        derived.save("scaled", "loss * lam + 1")
-        derived.save("pace", "rate(rows, step)")
-        derived.save("needs_more", "loss + not_logged")
+        derived.save("here", "scaled", "loss * lam + 1")
+        derived.save("here", "pace", "rate(rows, step)")
+        derived.save("here", "needs_more", "loss + not_logged")
+        derived.save("elsewhere", "other", "loss * 2")
         keys = [k["key"] for k in self.index.keys_of(["here/a"])["here/a"]]
-        self.assertEqual(keys[:2], ["scaled", "pace"]); self.assertNotIn("needs_more", keys)
+        self.assertEqual(keys[:2], ["scaled", "pace"]); self.assertNotIn("needs_more", keys); self.assertNotIn("other", keys)
         s = self.index.series("here/a", "scaled")
         self.assertEqual((s["n"], s["x"][0]), (100, 0.0)); self.assertAlmostEqual(s["y"][0], 1.0 * 0.2 + 1)
         pace = self.index.series("here/a", "pace")
@@ -274,8 +277,8 @@ class Index(unittest.TestCase):
         self.assertEqual(self.index.series("here/a", "scaled", x="rows")["x"][1], 40.0)
         for bad in ("__import__('os').system('true')", "open('x')", "loss if 1 else 2", "loss +", "rate(loss)"):
             with self.assertRaises(ValueError):
-                derived.save("bad", bad)
-        derived.save("scaled", "")
+                derived.save("here", "bad", bad)
+        derived.save("here", "scaled", "")
         self.assertNotIn("scaled", [k["key"] for k in self.index.keys_of(["here/a"])["here/a"]])
 
     def test_it_follows_a_run_that_grows_and_one_that_is_replaced(self):

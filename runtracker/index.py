@@ -21,7 +21,7 @@ from pathlib import Path
 
 from . import derived, store, wandbfile
 
-VERSION = 3
+VERSION = 4
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, sig TEXT, lines INTEGER, sys INTEGER, summary TEXT) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS keys(run TEXT, key TEXT, kind TEXT, n INTEGER, last, lo REAL, hi REAL, mono INTEGER,
@@ -184,7 +184,7 @@ def keys_of(run_ids):
             have = {k["key"] for k in logged if k["kind"] == "number"}
             settings = _settings(con, rid)
             made = []
-            for name, d in derived.load().items():
+            for name, d in derived.load(_project(con, rid)).items():
                 try:
                     need = derived.names(d["expr"])
                 except ValueError:
@@ -193,6 +193,11 @@ def keys_of(run_ids):
                     made.append({"key": name, "kind": "number", "n": 0, "last": None, "lo": None, "hi": None, "mono": False, "formula": d["expr"]})
             out[rid] = made + logged
         return out
+
+
+def _project(con, run_id):
+    row = con.execute("SELECT summary FROM runs WHERE id=?", (run_id,)).fetchone()
+    return (json.loads(row[0]).get("project") or "") if row else ""
 
 
 def _settings(con, run_id):
@@ -247,7 +252,7 @@ def series(run_id, key, x="step", limit=1500):
     with _lock:
         con = db()
         stream = 1 if key.startswith("sys/") else 0
-        formula = derived.load().get(key)
+        formula = derived.load(_project(con, run_id)).get(key)
         if formula and not con.execute("SELECT 1 FROM keys WHERE run=? AND key=?", (run_id, key)).fetchone():
             try:
                 rows = _worked_out(con, run_id, formula["expr"], x)

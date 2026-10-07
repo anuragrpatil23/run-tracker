@@ -11,7 +11,7 @@ A name in a formula is a number the run logged ("rebuild_error", "sky.fired"), a
 with ("lam"), or one of two every run has: step, and seconds since its first line. The arithmetic is + - * / ** and brackets. The functions are log, log10, exp, sqrt, abs, min, max, and
 rate(a, b): how fast a changes as b changes, from one logged line to the next.
 
-Formulas are kept in derived.json in the data folder. They are read as arithmetic and nothing else: a formula cannot
+Formulas belong to a project and are kept in its derived.json. They are read as arithmetic and nothing else: a formula cannot
 call anything outside the list above.
 """
 import ast, math, operator
@@ -23,22 +23,22 @@ OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast
 FUNCS = {"log": math.log, "log10": math.log10, "exp": math.exp, "sqrt": math.sqrt, "abs": abs, "min": min, "max": max}
 
 
-def load():
-    return store.read_json(store.data_dir() / "derived.json", {}) or {}
+def load(project):
+    return store.read_json(store.project_dir(project) / "derived.json", {}) or {}
 
 
-def save(name, expr):
+def save(project, name, expr):
     """Keep a formula under a name, or drop the name if the formula is empty. Raises ValueError if it cannot be read."""
     name = name.strip()
     if not name or any(c in name for c in " =,"):
         raise ValueError("a chart needs a name with no spaces, such as loss")
-    defs = load()
+    defs = load(project)
     if expr.strip():
         names(expr)
         defs[name] = {"expr": expr.strip()}
     else:
         defs.pop(name, None)
-    store.write_json(store.data_dir() / "derived.json", defs)
+    store.write_json(store.project_dir(project) / "derived.json", defs)
     return defs
 
 

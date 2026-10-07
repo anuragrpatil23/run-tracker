@@ -3,7 +3,7 @@
      #/run/<id>         one run
      #/search/<text>    the words logged in every run */
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { api, dur, enc, fmt, Run, runHref, SyncState, useHash, usePoll, useStored } from "./lib";
+import { api, dur, enc, fmt, Run, runHref, setScope, SyncState, useHash, usePoll, useStored } from "./lib";
 import { RunPage, Word } from "./RunPage";
 import { Workspace } from "./Workspace";
 
@@ -36,24 +36,33 @@ function Search({ q, runs }: { q: string; runs: Run[] }) {
 
 export function App() {
   const hash = useHash();
-  const [theme, setTheme] = useStored<"" | "light" | "dark">("theme", "");
+  const [theme, setTheme] = useStored<"" | "light" | "dark">("theme", "", true);
+  const [chosen, setChosen] = useStored("project", "", true);
   const [toast, setToast] = useState("");
   const [q, setQ] = useState("");
   const { data, reload } = usePoll<Listing>(() => api("/api/v2/runs"), 5000, []);
   // what each logged name means, in a sentence: from the training scripts, or written here
   const [about, setAboutMap] = useState<Record<string, string>>({});
-  useEffect(() => { api("/api/v2/about").then(setAboutMap, () => {}); }, [data?.runs.length]);
-  const setAbout = useCallback((key: string, text: string) => { api("/api/v2/about", { key, text }).then(setAboutMap, e => say(e.message)); }, []);
+  // A project is the top-level grouping: its runs are looked at together and nothing of one shows in another.
+  // The page opens on the project chosen last, or the one with the newest run.
+  const all = data?.runs ?? [];
+  const projects = [...new Set(all.map(r => r.project))].sort();
+  const newest = [...all].sort((a, b) => (b.started ?? 0) - (a.started ?? 0))[0]?.project ?? "";
+  const hashRun = decodeURI(hash.replace(/^#\/?/, "")).split("?")[0].replace(/^run\//, "");
+  const project = (hash.startsWith("#/run/") && all.find(r => r.id === hashRun)?.project) || (projects.includes(chosen) ? chosen : newest);
+  setScope(project);
+  useEffect(() => { if (project) api(`/api/v2/about?project=${enc(project)}`).then(setAboutMap, () => {}); }, [project, data?.runs.length]);
+  const setAbout = useCallback((key: string, text: string) => { api("/api/v2/about", { project, key, text }).then(setAboutMap, e => say(e.message)); }, [project]);
   // charts worked out by formula from what was logged
   const [formulas, setFormulas] = useState<Record<string, { expr: string }>>({});
-  useEffect(() => { api("/api/v2/derived").then(setFormulas, () => {}); }, []);
+  useEffect(() => { if (project) api(`/api/v2/derived?project=${enc(project)}`).then(setFormulas, () => {}); }, [project]);
   const saveFormula = useCallback(async (name: string, expr: string, text: string) => {
     try {
-      setFormulas(await api("/api/v2/derived", { name, expr }));
-      if (expr.trim()) setAboutMap(await api("/api/v2/about", { key: name, text }));
+      setFormulas(await api("/api/v2/derived", { project, name, expr }));
+      if (expr.trim()) setAboutMap(await api("/api/v2/about", { project, key: name, text }));
       return null;
     } catch (e: any) { return String(e.message || e); }
-  }, []);
+  }, [project]);
   // Before the charts redraw: they read their colours off the page, so the page must already be in the new theme.
   useLayoutEffect(() => { theme ? document.documentElement.setAttribute("data-theme", theme) : document.documentElement.removeAttribute("data-theme"); }, [theme]);
   const say = useCallback((text: string) => { setToast(text); setTimeout(() => setToast(t => (t === text ? "" : t)), 5000); }, []);
@@ -66,11 +75,14 @@ export function App() {
 
   const sync = data?.sync;
   const syncNow = async () => { await api("/api/sync", {}); say("Copying from the sources…"); setTimeout(reload, 1500); };
-  const runs = data?.runs ?? [];
+  const runs = all.filter(r => r.project === project);
   return (
     <div className="app">
       <nav className="top">
         <a className="brand" href="#/">Train Run Tracker</a>
+        {projects.length > 1 && <label className="inline project" data-tip="Each project's runs are kept apart: their charts, what the charts mean, and what you pinned">Project
+          <select value={project} onChange={e => { setChosen(e.target.value); location.hash = "#/"; }}>
+            {projects.map(p => <option key={p} value={p}>{p} ({all.filter(r => r.project === p).length})</option>)}</select></label>}
         <span className="grow" />
         {sync && (sync.busy || sync.error || sync.last) && (
           <span className={"sync" + (sync.busy ? " busy" : sync.error ? " bad" : "")} title={sync.error ? sync.error : (sync.lines ?? []).join("\n")}>
@@ -83,9 +95,9 @@ export function App() {
       </nav>
       <main>
         {!data ? <p className="muted">Loading…</p>
-          : kind === "run" && arg ? <RunPage key={arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />
-          : kind === "search" && arg ? <Search q={decodeURIComponent(arg)} runs={runs} />
-          : <Workspace runs={runs} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />}
+          : kind === "run" && arg ? <RunPage key={project + "/" + arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />
+          : kind === "search" && arg ? <Search q={decodeURIComponent(arg)} runs={all} />
+          : <Workspace key={project} runs={runs} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />}
       </main>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

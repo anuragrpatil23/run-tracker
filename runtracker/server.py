@@ -87,9 +87,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send({"runs": index.refresh(), "sync": syncing, "sources": store.load_config()["sources"],
                            "data": str(store.data_dir()), "now": time.time()})
             elif url.path == "/api/v2/about":
-                self.send(store.about(index.refresh()))
+                self.send(store.about(index.refresh(), q["project"]))
             elif url.path == "/api/v2/derived":
-                self.send(derived.load())
+                self.send(derived.load(q["project"]))
             elif url.path == "/api/v2/keys":
                 ids = [i for i in q.get("runs", "").split(",") if i]
                 self.send(index.keys_of(ids))
@@ -145,11 +145,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/local":
                 self.send(store.set_local(body["id"], body))
             elif path == "/api/v2/about":
-                store.set_about(str(body["key"]), str(body.get("text", "")))
-                self.send(store.about(index.refresh()))
+                store.set_about(str(body["project"]), str(body["key"]), str(body.get("text", "")))
+                self.send(store.about(index.refresh(), str(body["project"])))
             elif path == "/api/v2/derived":
                 try:
-                    self.send(derived.save(str(body["name"]), str(body.get("expr", ""))))
+                    self.send(derived.save(str(body["project"]), str(body["name"]), str(body.get("expr", ""))))
                 except ValueError as e:
                     self.send({"error": str(e)}, code=400)
             elif path == "/api/notes":

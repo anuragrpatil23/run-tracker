@@ -13,7 +13,7 @@ import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { api, cssColour, enc, fmt, Run, Series, tick, useSeen } from "./lib";
 
-export type Line = { label: string; slot: number; x: number[]; y: number[]; lo?: number[]; hi?: number[]; members?: number };
+export type Line = { label: string; slot: number; x: number[]; y: number[]; lo?: number[]; hi?: number[]; members?: number; dashed?: boolean };
 type Range = [number, number] | null;
 
 /* Small line drawings for buttons. Each button that carries one has a label for screen readers and says what it does
@@ -26,7 +26,7 @@ const DRAWINGS = {
 };
 export const Icon = ({ name }: { name: keyof typeof DRAWINGS }) =>
   <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={DRAWINGS[name]} /></svg>;
-type Col = { label: string; colour: string; role: "line" | "logged" | "edge"; line: number };
+type Col = { label: string; colour: string; role: "line" | "logged" | "edge"; line: number; dashed?: boolean };
 
 /* Smoothing as a running average that leans on the past by `a` (0 none, towards 1 heavy), corrected so the
    start of the line is not dragged towards zero. */
@@ -175,7 +175,7 @@ export function Chart({ lines, xLabel, logY, smooth, syncKey, height, theme, ran
     lines.forEach((l, line) => {
       if (!l.x.length) return;
       const colour = cssColour(l.slot >= 1 && l.slot <= 8 ? `--s${l.slot}` : "--faint");
-      tables.push([l.x, clip(smoothed(l.y, smooth))]); cols.push({ label: l.label, colour, role: "line", line });
+      tables.push([l.x, clip(smoothed(l.y, smooth))]); cols.push({ label: l.label, colour, role: "line", line, dashed: l.dashed });
       if (smooth) { tables.push([l.x, clip(l.y)]); cols.push({ label: l.label, colour, role: "logged", line }); }
       if (l.lo && l.hi && (l.members ?? 0) > 1) {
         tables.push([l.x, clip(l.hi)], [l.x, clip(l.lo)]);
@@ -208,7 +208,7 @@ export function Chart({ lines, xLabel, logY, smooth, syncKey, height, theme, ran
       ],
       series: [{}, ...cols.map(c => ({
         label: c.label, stroke: c.role === "edge" ? tint(c.colour, 0) : c.colour, width: c.role === "line" ? 1.75 : c.role === "logged" ? 1 : 0,
-        alpha: c.role === "logged" ? 0.28 : 1, spanGaps: true, points: { show: false },
+        alpha: c.role === "logged" ? 0.28 : 1, spanGaps: true, points: { show: false }, ...(c.dashed ? { dash: [6, 4] } : {}),
       }))],
       bands,
       focus: { alpha: 0.22 },
@@ -270,7 +270,7 @@ export function FormulaForm({ view, names = [], edit, close }: { view: View; nam
         <h2>{edit ? `The formula for ${edit}` : "A chart from a formula"}</h2>
         <p className="muted small">For a number the training script did not log but that follows from ones it did. It appears for every run that has the names the formula uses.</p>
         <label>Name<input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="loss" disabled={!!edit} required autoFocus={!edit} /></label>
-        <label>Formula<input type="text" className="mono" value={expr} onChange={e => setExpr(e.target.value)} placeholder="rebuild_error + lam * total_firing" required autoFocus={!!edit} /></label>
+        <label>Formula<input type="text" className="mono" value={expr} onChange={e => setExpr(e.target.value)} placeholder="data_term + weight_decay * penalty" required autoFocus={!!edit} /></label>
         <label>What it shows<input type="text" value={text} onChange={e => setText(e.target.value)} placeholder="One sentence, shown under the chart" /></label>
         <p className="muted small">Use the names of logged numbers and of hyperparameters, with + - * / ** and brackets. Also: step, seconds, log, log10, exp, sqrt, abs, min, max, and rate(a, b) for how fast a changes as b changes.
           {names.length > 0 && <> Logged here: <span className="mono">{names.slice(0, 24).join(", ")}</span>{names.length > 24 ? " and more." : "."}</>}</p>
@@ -361,8 +361,11 @@ function Inspector({ name, lines, xLabel, logY, view, sync, close }:
 }
 
 /* One chart in the grid: fetches its own numbers once it scrolls into view, and again when the runs grow. */
-export function Panel({ name, title, runs, view, onHide, sync, height = 200, pinned, onPin }:
-  { name: string; title?: string; runs: Drawn[]; view: View; onHide?: () => void; sync?: string; height?: number; pinned?: boolean; onPin?: () => void }) {
+/* `also` puts further logged names on the same chart, dashed: the same number on held-out data beside training data.
+   Each run keeps its colour across them; `first` is what the solid line is called ("train"). */
+export function Panel({ name, title, runs, view, onHide, sync, height = 200, pinned, onPin, also = [], first = "", chartId }:
+  { name: string; title?: string; runs: Drawn[]; view: View; onHide?: () => void; sync?: string; height?: number; pinned?: boolean; onPin?: () => void;
+    also?: { key: string; label: string }[]; first?: string; chartId?: string }) {
   const [ref, seen] = useSeen<HTMLElement>();
   const [data, setData] = useState<Record<string, Record<string, Series>> | null>(null);
   // "#/?inspect=<name>" opens that chart's inspector straight away, so a link can point at one chart
@@ -374,18 +377,19 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
   useEffect(() => {
     if (!seen || !ids) return;
     let alive = true;
-    api(`/api/v2/series?runs=${enc(ids)}&keys=${enc(name)}&x=${enc(x)}&points=${big ? 6000 : 1500}`).then(d => { if (alive) setData(d); }, () => {});
+    api(`/api/v2/series?runs=${enc(ids)}&keys=${enc([name, ...also.map(a => a.key)].join(","))}&x=${enc(x)}&points=${big ? 6000 : 1500}`).then(d => { if (alive) setData(d); }, () => {});
     return () => { alive = false; };
-  }, [seen, ids, name, x, view.tickN, big, formula]);
+  }, [seen, ids, name, x, view.tickN, big, formula, also.map(a => a.key).join(",")]);
   const lines: Line[] = useMemo(() => {
-    const each = runs.map(r => {
-      const s = data?.[r.id]?.[name];
-      return { label: r.name, slot: r.slot, x: s ? (x === "_t" ? s.x.map(v => v / 60) : s.x) : [], y: s ? s.y : [], group: r.group };
-    });
-    if (!view.bundled) return each;
+    const of = (r: Drawn, key: string, label: string, dashed: boolean) => {
+      const s = data?.[r.id]?.[key];
+      return { label: label ? `${r.name}, ${label}` : r.name, slot: r.slot, x: s ? (x === "_t" ? s.x.map(v => v / 60) : s.x) : [], y: s ? s.y : [], group: r.group, dashed };
+    };
+    const each = runs.map(r => of(r, name, also.length ? first : "", false));
+    if (!view.bundled) return [...each, ...also.flatMap(a => runs.map(r => of(r, a.key, a.label, true)))];
     const groups = [...new Set(each.map(l => l.group ?? ""))];
     return groups.map(g => { const members = each.filter(l => (l.group ?? "") === g && l.x.length); return bundle(g, members[0]?.slot ?? 0, members); });
-  }, [data, runs, name, x, view.bundled]);
+  }, [data, runs, name, x, view.bundled, also.map(a => a.key).join(","), first]);
   const logY = view.logs[name] ?? wantsLog(lines);
   const xLabel = x === "_t" ? "minutes" : view.xLabel;
   // Beside the name: where the number stands now. One run: its latest value. Several: the span of their latest values.
@@ -394,7 +398,7 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
     : Math.min(...latest) === Math.max(...latest) ? fmt(latest[0]) : `${fmt(Math.min(...latest))} to ${fmt(Math.max(...latest))}`;
   const close = useCallback(() => setBig(false), []);
   return (
-    <figure className="chart" ref={ref} data-chart={name}>
+    <figure className="chart" ref={ref} data-chart={chartId ?? name}>
       <figcaption>
         <span className="t" title={name}>{title ?? name}</span>
         {stands && <span className="now" data-tip={latest.length === 1 ? "The latest value" : "The lowest and highest of the runs' latest values"}>{stands}</span>}

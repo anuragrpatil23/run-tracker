@@ -12,13 +12,18 @@ import { useStored } from "./lib";
 type Section = { id: string; title: string; about: string; keys: string[] };
 const SIZES = { s: { min: 250, height: 140 }, m: { min: 360, height: 200 }, l: { min: 560, height: 300 } };
 
+/* Names that say which data a number was measured on. A number logged under two of them ("train/loss" and "val/loss") is
+   one question asked of two sets of data, and is also drawn as one chart. */
+const SPLITS = ["train", "training", "val", "valid", "validation", "eval", "test", "dev"];
+const SOLID = ["train", "training"];
+
 function sectionOf(key: string): string {
   if (key.startsWith("sys/")) return "sys";
   const cut = key.search(/[/.]/);
   return cut > 0 ? key.slice(0, cut) : "main";
 }
 const shortName = (key: string, section: string) =>
-  section === "sys" ? key.slice(4) : section !== "main" && section !== "pinned" && key.startsWith(section) ? key.slice(section.length + 1) : key;
+  key.startsWith("splits:") ? key.slice(7) : section === "sys" ? key.slice(4) : section !== "main" && section !== "pinned" && key.startsWith(section) ? key.slice(section.length + 1) : key;
 
 export function ChartSections({ numbers, clocks, runs, view, sync }:
   { numbers: string[]; clocks: string[]; runs: Drawn[]; view: View; sync: string }) {
@@ -39,8 +44,13 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
     for (const k of charts) { const s = sectionOf(k); by.set(s, [...(by.get(s) ?? []), k]); }
     const rest = [...by.keys()].filter(s => s !== "main" && s !== "sys").sort();
     const out: Section[] = [];
-    const pins = pinned.filter(k => charts.includes(k));
+    // "splits:loss" stands for the chart that draws train/loss and val/loss together
+    const bySuffix = new Map<string, string[]>();
+    for (const k of charts) { const s = sectionOf(k); if (SPLITS.includes(s)) { const rest = k.slice(s.length + 1); bySuffix.set(rest, [...(bySuffix.get(rest) ?? []), k]); } }
+    const joint = [...bySuffix].filter(([, ks]) => ks.length > 1).map(([rest]) => "splits:" + rest);
+    const pins = pinned.filter(k => charts.includes(k) || joint.includes(k));
     if (pins.length) out.push({ id: "pinned", title: "Pinned", about: "The charts you chose to keep at the top", keys: pins });
+    if (joint.length) out.push({ id: "splits", title: "Training and held-out", about: "The same number on the data trained on (solid) and on data held out (dashed), one chart each", keys: joint });
     if (by.has("main")) out.push({ id: "main", title: "Main", about: "The numbers the run logged at each step", keys: by.get("main")! });
     for (const s of rest) out.push({ id: s, title: s, about: `Everything the run logged under “${s}”`, keys: by.get(s)! });
     if (by.has("sys")) out.push({ id: "sys", title: "The machine", about: "GPU, memory and processor, against minutes since the run began", keys: by.get("sys")! });
@@ -50,7 +60,7 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
   const q = find.trim().toLowerCase();
   const matching = (s: Section) => (q ? s.keys.filter(k => k.toLowerCase().includes(q)) : s.keys);
   const firstId = sections[0]?.id;
-  const isOpen = (s: Section) => (q ? matching(s).length > 0 : open[s.id] ?? (s.id === "pinned" || s.id === "main" || (s.id === firstId && sections.length === 1)));
+  const isOpen = (s: Section) => (q ? matching(s).length > 0 : open[s.id] ?? (s.id === "pinned" || s.id === "main" || s.id === "splits" || (s.id === firstId && sections.length === 1)));
   const set = (id: string, on: boolean) => setOpen(old => ({ ...old, [id]: on }));
   const [reading, setReading] = useState("");
   const goTo = (s: Section, chart?: string) => {
@@ -121,8 +131,14 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
               <About name={"section:" + s.id} fallback={s.about} view={view} />
             </div>
             {isOpen(s) && <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill,minmax(min(100%,${SIZES[size].min}px),1fr))` }}>
-              {keys.map(k => <Panel key={k} name={k} title={shortName(k, s.id)} runs={runs} view={view} sync={s.id === "sys" ? sync + "-sys" : sync} height={SIZES[size].height}
-                pinned={pinned.includes(k)} onPin={() => pin(k)} onHide={() => setHidden([...hidden, k])} />)}
+              {keys.map(k => {
+                const shared = { runs, view, height: SIZES[size].height, pinned: pinned.includes(k), onPin: () => pin(k) };
+                if (!k.startsWith("splits:")) return <Panel key={k} name={k} title={shortName(k, s.id)} sync={s.id === "sys" ? sync + "-sys" : sync} onHide={() => setHidden([...hidden, k])} {...shared} />;
+                // one chart for a number measured on several sets of data: the training one solid, the others dashed
+                const members = numbers.filter(n => SPLITS.includes(sectionOf(n)) && n.slice(sectionOf(n).length + 1) === k.slice(7) && !hidden.includes(n));
+                const main = members.find(n => SOLID.includes(sectionOf(n))) ?? members[0];
+                return <Panel key={k} chartId={k} name={main} title={k.slice(7)} first={sectionOf(main)} also={members.filter(n => n !== main).map(n => ({ key: n, label: sectionOf(n) }))} sync={sync} {...shared} />;
+              })}
             </div>}
           </section>
         );

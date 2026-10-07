@@ -50,3 +50,16 @@ Shown name: Train Run Tracker (his choice). Repo, package and the `rt` command k
 Not built yet: pictures, tables and histograms from W&B runs; lines per group with a band; saved views kept
 on the server; arranging and resizing panels; alerts; code diff between runs. Tabs and controls were
 type-checked and the pages looked at in headless Chrome, but nothing was clicked through by a script.
+
+# General purpose, not shaped to one experiment (2026-10-06)
+
+Anurag asked whether the app was being over-fitted to his sparse autoencoder runs. It was, around the edges: one
+pile of runs with no projects, descriptions and formulas global by name, no way to see train and validation on one
+chart, and examples drawn from his data. Fixed by making projects the scope and adding the combined charts. Tried
+against four stand-in supervised runs (image classifier: train/val loss and accuracy, lr schedule, grad norm, epochs).
+
+`Learn-AI/train-sparse-autoencoder/train.py` now logs by the usual names (train/, val/, features/, lr, grad_norm)
+with the W&B client offline when it is installed and tracker.py otherwise, under the project `sae-gpt2-mlp0`.
+Runs made before this keep their old flat names and sit in the project `sae` (their source).
+
+Still not read from W&B files: images, histograms, tables, and define_metric.

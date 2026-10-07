@@ -106,7 +106,7 @@ export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFor
           <h2>Choose runs</h2><span className="grow" /><button className="small" onClick={() => setChoosing(false)}>Done</button>
         </div>
         <p className="muted small">Click a run's dot to draw it on the charts or take it off. Click its name to open it.</p>
-        <input type="search" placeholder="Filter runs: a name, a tag, lam=0.2" value={filter} aria-label="Filter the runs" onChange={e => setFilter(e.target.value)} />
+        <input type="search" placeholder="Filter runs: a name, a tag, lr=0.001" value={filter} aria-label="Filter the runs" onChange={e => setFilter(e.target.value)} />
         <div className="row small muted">
           <label className="inline">Group by<select value={groupBy} onChange={e => setGroupBy(e.target.value)}>
             <option value="">nothing</option><option value="source">source</option><option value="project">project</option><option value="state">state</option>
@@ -154,6 +154,7 @@ export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFor
               {going(r) && <Badge run={r} />}
             </span>))}
           {shown.length > 12 && <button className="small ghost" onClick={() => setChoosing(true)}>and {shown.length - 12} more</button>}
+          {filter.trim() && <button className="small" data-tip="Only runs matching this are listed. Click to list them all." onClick={() => setFilter("")}>Only “{filter.trim()}” ×</button>}
           <span className="grow" />
           <button className="small" data-tip="Filter, group and sort the runs, and pick which are drawn" onClick={() => setChoosing(true)}>Choose runs</button>
         </div>

@@ -278,7 +278,13 @@ def load(path):
             status.update(state="finished" if run["exit"] == 0 else "failed", ended=run["last_t"])
             if run["exit"]:
                 status["error"] = "the script ended with exit code %d" % run["exit"]
-        return {"log": run["log"], "system": run["system"], "output": run["output"], "config": run["config"], "meta": run["meta"], "status": status}
+        # The client has no place for a sentence saying what a metric means. A script can put them in the config it gives
+        # wandb.init, under "about"; they are taken out of the hyperparameters and shown under the charts.
+        config = run["config"]
+        if isinstance(config.get("about"), dict):
+            run["meta"]["about"] = {str(k): str(v) for k, v in config["about"].items()}
+            config = {k: v for k, v in config.items() if k != "about"}
+        return {"log": run["log"], "system": run["system"], "output": run["output"], "config": config, "meta": run["meta"], "status": status}
 
 
 def find(folder):

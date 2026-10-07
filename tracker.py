@@ -166,7 +166,7 @@ class Run:
     """One run folder being written. Made by start()."""
 
     def __init__(self, folder, config=None, total=None, prediction=None, name=None,
-                 system_every=5.0, heartbeat_every=20.0, code_dir=None):
+                 system_every=5.0, heartbeat_every=20.0, code_dir=None, project=None, group=None):
         self.folder = os.path.abspath(folder)
         self.total = total
         self.step = None
@@ -182,7 +182,7 @@ class Run:
             os.makedirs(self.folder, exist_ok=True)
         except Exception as e:
             _warn("make the run folder", e)
-        self._start_files(config, prediction, name, code_dir)
+        self._start_files(config, prediction, name, code_dir, project, group)
         self._write_status()
         try:
             self._thread = threading.Thread(target=self._background, name="tracker", daemon=True)
@@ -195,7 +195,7 @@ class Run:
         return os.path.join(self.folder, name)
 
     # ---------- written once, at the start ----------
-    def _start_files(self, config, prediction, name, code_dir):
+    def _start_files(self, config, prediction, name, code_dir, project=None, group=None):
         try:
             code_dir = code_dir or os.path.dirname(os.path.abspath(sys.argv[0] or ".")) or os.getcwd()
             gpus = _gpus()
@@ -218,6 +218,10 @@ class Run:
                 meta.update({"format": FORMAT, "name": name or os.path.basename(self.folder), "restarts": []})
                 if prediction:
                     meta["prediction"] = prediction
+                if project:
+                    meta["project"] = project
+                if group:
+                    meta["group"] = group
                 _replace(self._p("config.json"), config if config is not None else {})
             _replace(self._p("meta.json"), meta)
             self._first_started = meta.get("time", self._started)
@@ -385,6 +389,7 @@ def start(folder, config=None, **options):
     total       the last step the run will reach, if known, so the viewer can say how far along it is
     prediction  what you expect to see, written down before the run; shown beside the result afterwards
     name        a name for the run; the folder's name if left out
+    project     which project the run belongs to; the viewer keeps projects apart
     system_every, heartbeat_every   seconds between GPU samples and between heartbeats
     """
     return Run(folder, config, **options)

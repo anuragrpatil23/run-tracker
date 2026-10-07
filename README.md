@@ -78,7 +78,9 @@ error. If a write fails (a full disk, a folder that cannot be written) it warns 
 and the training carries on.
 
 `run.describe(not_rebuilt="The share of the input the network failed to rebuild.")` says in a
-sentence what a logged name means; the viewer shows it under that chart. The same sentence can be
+sentence what a logged name means; the viewer shows it under that chart. With the W&B client,
+which has no place for this, put the sentences in the config under `about`:
+`wandb.init(config={..., "about": {"train/loss": "What is minimised."}})`. The same sentence can be
 written or rewritten in the viewer by clicking it.
 
 The folder it writes is described in [docs/format.md](docs/format.md).
@@ -115,6 +117,11 @@ rt view                   # http://127.0.0.1:8787
 rt view --watch           # the same, syncing in the background while a run is going
 ```
 
+- **Projects.** Runs are kept in projects: the one named to `wandb.init(project=...)` or
+  `tracker.start(..., project=...)`, or the source for runs that name none. The app shows one project
+  at a time. What its charts mean, its formulas, and what you pinned or chose belong to that project.
+- **Training and held-out together.** A number logged as both `train/loss` and `val/loss` (or
+  `eval/`, `test/`) is also drawn as one chart: each run in its colour, training solid, held-out dashed.
 - **Workspace.** The runs down the left, what they logged on the right. Tick runs to draw them:
   every number becomes a chart with a line per run. Drag across a chart to zoom, double-click to
   reset; the readout follows the pointer on every chart at once. Smoothing, a log scale per chart

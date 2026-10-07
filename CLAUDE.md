@@ -29,6 +29,10 @@ between the three parts.
 - The home page has no sidebar: a strip of run chips stays in view as the legend, the full list is behind
   "Choose runs", and charts sit in sections with a table of contents down the left. Each section and chart carries a sentence saying what it shows
   (from `run.describe` in the writer, or typed in the viewer and kept in `about.json` in the data folder).
+- Projects are the top level. A run's project is the W&B project, the tracker's `project`, or its source.
+  Descriptions and formulas live in `<data>/projects/<project>/`; what a reader sets up in the browser is
+  remembered per project (`useStored` in `web/src/lib.ts`). Nothing in the code may assume one kind of
+  model: test changes against the ordinary supervised runs too (train/val loss, accuracy, lr, epochs).
 - `claude-workspace/` — working notes for this project.
 
 ## Rules

@@ -261,11 +261,12 @@ def summary(run_id, path, now=None):
         seconds = None
     source, _, name = run_id.partition("/")
     wb = meta.get("wandb") or {}
-    if wb:
-        name = meta.get("name") or name                     # the name given to wandb.init, not offline-run-<date>-<id>
+    # the name the run was given (to wandb.init, or the folder's own name), not its whole path below the source
+    name = meta.get("name") or name.rsplit("/", 1)[-1]
     return {
         "id": run_id, "name": name or run_id, "source": source, "format": meta.get("format") if wb else "tracker",
-        "project": wb.get("project"), "group": wb.get("group"),
+        # A project is the top-level grouping: the one named to wandb.init, or the source for runs that name none.
+        "project": wb.get("project") or meta.get("project") or source, "group": wb.get("group") or meta.get("group"),
         "state": state, "why": why,
         "step": last.get("step", (status or {}).get("step")), "total": (status or {}).get("total"),
         "lines": len(log), "started": started, "ended": ended, "seconds": seconds,
@@ -344,26 +345,32 @@ def set_local(run_id, changes):
     return local
 
 
-def about(summaries):
-    """What each logged name means, in a sentence: {name: text}.
+def project_dir(project):
+    """Where a project's own files are kept: what its charts mean, and its formulas."""
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in project) or "_"
+    return data_dir() / "projects" / safe
 
-    Training scripts can say (run.describe in the writer); what is written in the viewer is kept in about.json in the
-    data folder and wins over what a script said. A section of charts is described under "section:<name>".
+
+def about(summaries, project):
+    """What each logged name means in one project, in a sentence: {name: text}.
+
+    Training scripts can say (run.describe in the writer, or an "about" entry in the config given to wandb.init); what
+    is written in the viewer is kept in the project's about.json and wins over what a script said. A section of charts
+    is described under "section:<name>". The same name can mean different things in different projects, so nothing
+    here is shared between them.
     """
     out = {}
     for s in summaries:
-        out.update(s.get("about") or {})
-    out.update(read_json(data_dir() / "about.json", {}) or {})
+        if s.get("project") == project:
+            out.update(s.get("about") or {})
+    out.update(read_json(project_dir(project) / "about.json", {}) or {})
     return out
 
 
-def set_about(key, text):
-    mine = read_json(data_dir() / "about.json", {}) or {}
-    if text.strip():
-        mine[key] = text.strip()
-    else:
-        mine[key] = ""                                      # written as empty, so a script's text is hidden, not restored
-    write_json(data_dir() / "about.json", mine)
+def set_about(project, key, text):
+    mine = read_json(project_dir(project) / "about.json", {}) or {}
+    mine[key] = text.strip()                                # kept even when empty, so a script's text is hidden, not restored
+    write_json(project_dir(project) / "about.json", mine)
 
 
 def set_notes(run_id, text):

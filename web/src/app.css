@@ -207,3 +207,5 @@ nav.top [data-tip]::after{white-space:normal;width:max-content;max-width:360px}
 .panel.sweep{margin-top:22px;padding-top:26px;border-top:1px solid var(--rule)}
 .modal-box.narrow{width:min(560px,100%)} .modal-box.narrow input{width:100%} .modal-box.narrow button[type=submit]{border-color:var(--fg)}
 .toc>button{align-self:flex-start}
+nav.top label.project{font-size:12.5px} nav.top label.project select{border-color:transparent;background-color:var(--wash);font-weight:500;color:var(--fg);padding:5px 26px 5px 10px}
+nav.top label.project[data-tip]::after{left:0;right:auto}
