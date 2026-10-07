@@ -7,7 +7,9 @@ import { api, dur, enc, fmt, Run, runHref, setScope, SyncState, useHash, usePoll
 import { RunPage, Word } from "./RunPage";
 import { Workspace } from "./Workspace";
 
-type Listing = { runs: Run[]; sync: SyncState; now: number };
+type Listing = { runs: Run[]; sync: SyncState; now: number; build?: string | null };
+// which build of the app this page is: the name of the script it was loaded from
+const BUILD = (document.querySelector('script[src*="/app/assets/"]') as HTMLScriptElement | null)?.src.split("/").pop() ?? "";
 type Found = { run: string; fields: { field: string; first_step: number | null; count: number; hits: { step: number | null; value: unknown }[] }[] }[];
 
 function Search({ q, runs }: { q: string; runs: Run[] }) {
@@ -96,6 +98,8 @@ export function App() {
         </form>
         <button className="small ghost" data-tip="Switch between light and dark" onClick={() => setTheme(shownTheme === "dark" ? "light" : "dark")}>{shownTheme === "dark" ? "Light" : "Dark"}</button>
       </nav>
+      {BUILD && data?.build && data.build !== BUILD && <div className="newer" role="status">
+        The app has been updated since this page was opened. <button className="small" onClick={() => location.reload()}>Reload to get the new version</button></div>}
       <main>
         {!data ? <p className="muted">Loading…</p>
           : kind === "run" && arg ? <RunPage key={project + "/" + arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />

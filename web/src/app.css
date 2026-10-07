@@ -247,3 +247,4 @@ button.unit b{color:var(--fg);font-weight:500;font-family:var(--mono);font-size:
 .pairs td.wrapc{white-space:normal;min-width:200px} h3{margin:0 0 6px;font-size:13px;font-weight:600}
 .unitpage{position:fixed;right:20px;bottom:20px;z-index:30;width:min(440px,calc(100vw - 40px));max-height:72vh;overflow:auto;background:var(--raise);border:1px solid var(--rule);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow)}
 .drawing .node rect.folded{stroke-dasharray:4 3} details.away summary{cursor:pointer} details.away{display:flex;flex-direction:column;gap:8px} details.away[open] summary{margin-bottom:6px}
+.newer{display:flex;gap:12px;align-items:center;justify-content:center;padding:8px 20px;background:var(--mark);color:var(--fg);font-size:13px}

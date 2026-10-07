@@ -4,7 +4,7 @@ It listens on 127.0.0.1 and nowhere else. The pages are plain files in static/; 
 show comes from the /api/ routes below, which read the folders afresh each time, so a run that is
 still being copied shows up as it grows.
 """
-import json, mimetypes, threading, time, traceback
+import json, mimetypes, re, threading, time, traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -95,8 +95,11 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/system":
                 self.send({"records": store.system_of(store.run_path(q["id"]))})
             elif url.path == "/api/v2/runs":
+                # `build` names the app as it is on disk now, so a page left open can tell when it has been replaced
+                built = STATIC / "app" / "index.html"
+                build = re.search(r"assets/(index-[^\"]+\.js)", built.read_text()) if built.is_file() else None
                 self.send({"runs": index.refresh(), "sync": syncing, "sources": store.load_config()["sources"],
-                           "data": str(store.data_dir()), "now": time.time()})
+                           "data": str(store.data_dir()), "now": time.time(), "build": build.group(1) if build else None})
             elif url.path == "/api/v2/about":
                 self.send(store.about(index.refresh(), q["project"]))
             elif url.path == "/api/v2/derived":
