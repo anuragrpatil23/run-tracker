@@ -1,0 +1,328 @@
+"""Reading the copied run folders on the laptop.
+
+Everything the viewer and the command line know about a run comes through here. The folders are
+laid out as <data>/runs/<source>/<run>/, where <data> is ~/run-tracker-data unless the
+environment variable RUN_TRACKER_DATA says otherwise.
+
+Two files in each copied folder are the laptop's own and are never taken from the cluster:
+  _sync.json   when the folder was last copied, what is on the far side, and the scheduler's word on the job
+  _local.json  tags, the one-line note, the prediction and how it turned out
+"""
+import json, os, threading, time
+from pathlib import Path
+
+RUN_MARKERS = ("log.jsonl", "status.json", "meta.json")
+_lock = threading.Lock()
+_logs = {}          # path -> {"offset": bytes read, "records": [...], "inode": ...}
+
+
+def data_dir():
+    return Path(os.environ.get("RUN_TRACKER_DATA", "~/run-tracker-data")).expanduser()
+
+
+def runs_dir():
+    return data_dir() / "runs"
+
+
+def load_config():
+    cfg = read_json(data_dir() / "config.json", {}) or {}
+    cfg.setdefault("sources", {})
+    return cfg
+
+
+def save_config(cfg):
+    write_json(data_dir() / "config.json", cfg)
+
+
+def read_json(path, default=None):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def write_json(path, obj):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp%d" % os.getpid())
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_jsonl(path):
+    """Every complete line of an append-only file, as a list. Reads only what is new since the last call.
+
+    A last line with no newline is a line still being written or half copied; it is left for next time.
+    """
+    path = str(path)
+    with _lock:
+        try:
+            st = os.stat(path)
+        except OSError:
+            _logs.pop(path, None)
+            return []
+        c = _logs.get(path)
+        if c is None or c["inode"] != st.st_ino or st.st_size < c["offset"]:
+            c = _logs[path] = {"offset": 0, "records": [], "inode": st.st_ino}
+        if st.st_size > c["offset"]:
+            with open(path, "rb") as f:
+                f.seek(c["offset"])
+                chunk = f.read()
+            end = chunk.rfind(b"\n") + 1
+            for line in chunk[:end].split(b"\n"):
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if isinstance(rec, dict):
+                        c["records"].append(rec)
+                except Exception:
+                    pass                                    # a damaged line is skipped, not fatal
+            c["offset"] += end
+        return c["records"]
+
+
+def flatten(obj, prefix=""):
+    """{"a": {"b": 1}} becomes {"a.b": 1}. Lists are kept whole."""
+    out = {}
+    for k, v in (obj or {}).items():
+        key = prefix + str(k)
+        if isinstance(v, dict):
+            out.update(flatten(v, key + "."))
+        else:
+            out[key] = v
+    return out
+
+
+def settings(config):
+    """The run's settings as one flat dict.
+
+    The first training script wrote {"args": {...}, "device": ...}; the args are lifted to the top so
+    those runs line up with later ones.
+    """
+    config = dict(config or {})
+    if isinstance(config.get("args"), dict):
+        inner = config.pop("args")
+        config = {**inner, **config}
+    return flatten(config)
+
+
+def is_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def find_runs():
+    """Every run folder under the data directory, as (id, path), id being source/run."""
+    root = runs_dir()
+    found = []
+    if not root.is_dir():
+        return found
+    for dirpath, dirnames, filenames in os.walk(root):
+        if any(m in filenames for m in RUN_MARKERS):
+            found.append((str(Path(dirpath).relative_to(root)), Path(dirpath)))
+            dirnames[:] = []                                # a run folder holds no further runs
+    return sorted(found)
+
+
+def run_path(run_id):
+    """The folder for a run id, refusing anything that would step outside the data directory."""
+    root = runs_dir().resolve()
+    p = (root / run_id).resolve()
+    if root not in p.parents or not p.is_dir():
+        raise KeyError(run_id)
+    return p
+
+
+def state_of(status, sync, log, now=None):
+    """What state a run is in, and a sentence saying why.
+
+    The run's own word (status.json) is weighed against the scheduler's (kept in _sync.json) and
+    against how fresh the heartbeat is. Freshness is measured against the far machine's clock at
+    the moment of the last copy, since the copy can be no newer than that.
+    """
+    sync = sync or {}
+    job = (sync.get("job") or {}).get("state")
+    there_now = sync.get("remote_time") or now or time.time()
+    last_t = next((r["_t"] for r in reversed(log) if is_number(r.get("_t"))), None)
+    tail = log[-40:]
+    gaps = sorted(b["_t"] - a["_t"] for a, b in zip(tail, tail[1:]) if is_number(a.get("_t")) and is_number(b.get("_t")))
+    usual_gap = gaps[len(gaps) // 2] if gaps else None
+
+    if status:
+        st = status.get("state", "running")
+        if st != "running":
+            return st, status.get("error") or ""
+        if job in ("finished", "killed", "gone"):
+            return "died", "the job is over (%s) but the run never said it had ended" % job
+        beat_age = there_now - (status.get("heartbeat") or 0)
+        limit = max(90.0, 4.0 * (status.get("heartbeat_every") or 20.0))
+        if beat_age > limit:
+            if job == "running":
+                return "stalled", "no heartbeat for %s while the job is still listed as running" % ago(beat_age)
+            return "died", "no heartbeat for %s" % ago(beat_age)
+        if last_t and usual_gap and there_now - last_t > max(180.0, 10.0 * usual_gap):
+            return "stalled", "heartbeat is fresh but nothing has been logged for %s" % ago(there_now - last_t)
+        if job == "pending":
+            return "pending", "waiting in the queue"
+        return "running", ""
+
+    # A folder with no status.json: written by hand or by a script from before the writer existed.
+    if job == "pending":
+        return "pending", "waiting in the queue"
+    if job == "running":
+        mtime = ((sync.get("files") or {}).get("log.jsonl") or [0, 0])[1]
+        if mtime and there_now - mtime > 900:
+            return "stalled", "log.jsonl has not grown for %s while the job is still listed as running" % ago(there_now - mtime)
+        return "running", ""
+    if job == "finished":
+        return "finished", ""
+    if job == "killed":
+        return "failed", "the scheduler reports the job did not end cleanly"
+    return "ended", "no status.json and the scheduler no longer lists the job"
+
+
+def ago(seconds):
+    seconds = max(0, float(seconds))
+    for size, unit in ((86400, "d"), (3600, "h"), (60, "min")):
+        if seconds >= size:
+            return "%.0f %s" % (seconds / size, unit)
+    return "%.0f s" % seconds
+
+
+def summary(run_id, path, now=None):
+    """The one-row view of a run, for the list."""
+    now = now or time.time()
+    meta = read_json(path / "meta.json", {}) or {}
+    status = read_json(path / "status.json")
+    sync = read_json(path / "_sync.json", {}) or {}
+    local = read_json(path / "_local.json", {}) or {}
+    log = read_jsonl(path / "log.jsonl")
+    state, why = state_of(status, sync, log, now)
+    last = log[-1] if log else {}
+    first = log[0] if log else {}
+    started = (status or {}).get("started") or meta.get("time") or first.get("_t")
+    ended = (status or {}).get("ended")
+    if not ended and state not in ("running", "pending", "stalled"):
+        ended = last.get("_t")
+    if started:
+        seconds = (ended or sync.get("remote_time") or now) - started     # a copied run is only as old as its last copy
+    elif is_number(last.get("minutes")):
+        seconds = last["minutes"] * 60                       # runs from before the writer carry their own clock
+    else:
+        seconds = None
+    source, _, name = run_id.partition("/")
+    return {
+        "id": run_id, "name": name or run_id, "source": source,
+        "state": state, "why": why,
+        "step": last.get("step", (status or {}).get("step")), "total": (status or {}).get("total"),
+        "lines": len(log), "started": started, "ended": ended, "seconds": seconds,
+        "settings": settings(read_json(path / "config.json", {})),
+        "latest": {k: v for k, v in flatten(last).items() if is_number(v) and not k.startswith("_")},
+        "tags": local.get("tags", []), "note": local.get("note", ""),
+        "prediction": local.get("prediction", meta.get("prediction", "")),
+        "synced": sync.get("time"), "job": sync.get("job"),
+        "commit": (meta.get("git") or {}).get("commit"), "dirty": (meta.get("git") or {}).get("dirty"),
+    }
+
+
+def all_summaries():
+    now = time.time()
+    return [summary(i, p, now) for i, p in find_runs()]
+
+
+def commit_url(git):
+    """A link to the commit on the web, where the remote is one we know how to link to."""
+    git = git or {}
+    remote, commit = git.get("remote") or "", git.get("commit")
+    if not commit:
+        return None
+    if remote.startswith("git@"):
+        host, _, repo = remote[4:].partition(":")
+        remote = "https://%s/%s" % (host, repo)
+    elif remote.startswith("ssh://git@"):
+        remote = "https://" + remote[10:]
+    if not remote.startswith("https://"):
+        return None
+    if remote.endswith(".git"):
+        remote = remote[:-4]
+    sub = git.get("path")
+    tree = "/tree/%s/%s" % (commit, sub) if sub and sub != "." else "/commit/" + commit
+    return remote + tree
+
+
+def detail(run_id):
+    """Everything about one run except the log lines themselves."""
+    path = run_path(run_id)
+    out = summary(run_id, path)
+    meta = read_json(path / "meta.json", {}) or {}
+    sync = read_json(path / "_sync.json", {}) or {}
+    local = read_json(path / "_local.json", {}) or {}
+    artifacts = read_jsonl(path / "artifacts.jsonl")
+    listed = {a.get("path") for a in artifacts}
+    files = []
+    for a in artifacts:
+        rel = a.get("path", "")
+        files.append({**a, "registered": True, "here": (path / rel).is_file() and (path / rel).stat().st_size == a.get("size")})
+    for rel in sync.get("big", []):                          # large files seen on the far side that nobody registered
+        if rel not in listed:
+            size = (sync.get("files", {}).get(rel) or [None])[0]
+            files.append({"path": rel, "size": size, "registered": False,
+                          "here": (path / rel).is_file() and (path / rel).stat().st_size == size})
+    try:
+        notes = (path / "notes.md").read_text(encoding="utf-8")
+    except Exception:
+        notes = ""
+    out.update({"meta": meta, "status": read_json(path / "status.json"), "config": read_json(path / "config.json", {}),
+                "sync": {k: v for k, v in sync.items() if k != "files"}, "local": local, "files": files, "notes": notes,
+                "commit_url": commit_url(meta.get("git")), "folder": str(path)})
+    return out
+
+
+def set_local(run_id, changes):
+    """Change the laptop's own facts about a run: tags, note, prediction, outcome."""
+    path = run_path(run_id)
+    local = read_json(path / "_local.json", {}) or {}
+    for k in ("tags", "note", "prediction", "outcome"):
+        if k in changes:
+            local[k] = changes[k]
+    local["changed"] = time.time()
+    write_json(path / "_local.json", local)
+    return local
+
+
+def set_notes(run_id, text):
+    path = run_path(run_id)
+    (path / "notes.md").write_text(text, encoding="utf-8")
+
+
+def search(query, limit_per_field=200):
+    """Look for text in the fields that are not numbers, across every run.
+
+    For each run and each field that matched: the first step it matched at, how many lines matched,
+    and the matching lines. Case is ignored; the query matches anywhere inside a word.
+    """
+    q = query.strip().lower()
+    results = []
+    if not q:
+        return results
+    for run_id, path in find_runs():
+        fields = {}
+        for rec in read_jsonl(path / "log.jsonl"):
+            for key, v in flatten(rec).items():
+                if isinstance(v, str):
+                    words = [v]
+                elif isinstance(v, list) and v and all(isinstance(x, str) for x in v):
+                    words = v
+                else:
+                    continue
+                hit = [w for w in words if q in w.lower()]
+                if not hit:
+                    continue
+                f = fields.setdefault(key, {"field": key, "first_step": rec.get("step"), "count": 0, "hits": []})
+                f["count"] += 1
+                if len(f["hits"]) < limit_per_field:
+                    f["hits"].append({"step": rec.get("step"), "value": v, "matched": hit})
+        if fields:
+            results.append({"run": run_id, "fields": sorted(fields.values(), key=lambda f: (f["first_step"] is None, f["first_step"]))})
+    return results

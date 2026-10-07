@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Run tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <nav class="top">
+    <a class="brand" href="#/">Run tracker</a>
+    <a href="#/">Runs</a>
+    <span class="muted" id="syncline"></span>
+    <button class="small" id="syncbtn" title="copy what is new from the sources now">Sync now</button>
+    <form id="searchform" role="search">
+      <input type="search" id="searchbox" placeholder="Search the words in every run, e.g. heavens" aria-label="Search the words logged in every run">
+      <button>Search</button>
+    </form>
+  </nav>
+  <main id="view" class="stack"></main>
+</div>
+<script src="/static/charts.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
