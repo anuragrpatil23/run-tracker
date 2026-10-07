@@ -3,7 +3,9 @@ import { useMemo, useState } from "react";
 import { asDrawn, Panel, View } from "./Chart";
 import { api, differing, dur, enc, fmt, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
 
-export const Badge = ({ run }: { run: Pick<Run, "state" | "why"> }) => <span className={"state " + run.state} title={run.why || ""}><i />{run.state}</span>;
+/* The state of a run as a mark and a word. The marks are not dots: on this page a coloured dot is a run. */
+const MARK: Record<string, string> = { finished: "✓", failed: "✕", died: "✕", stalled: "!", pending: "…", ended: "–", running: "" };
+export const Badge = ({ run }: { run: Pick<Run, "state" | "why"> }) => <span className={"state " + run.state} title={run.why || ""}><i aria-hidden>{MARK[run.state] ?? ""}</i>{run.state}</span>;
 
 type Shared = { runs: Run[]; theme: string; say: (text: string) => void };
 
@@ -12,12 +14,17 @@ export function Workspace({ runs, theme, say }: Shared) {
   const [groupBy, setGroupBy] = useStored("groupBy", "");
   const [sortBy, setSortBy] = useStored("sortBy", "newest");
   const [picked, setPicked] = useStored<string[] | null>("picked", null);
-  const [tab, setTab] = useStored("tab", "charts");
+  const [storedTab, setTab] = useStored("tab", "charts");
+  const [linked, setLinked] = useState(() => new URLSearchParams(location.hash.split("?")[1] ?? "").get("tab"));    // "#/?tab=table" opens on that tab
+  const tab = linked ?? storedTab;
   const [x, setX] = useStored("x", "step");
   const [smooth, setSmooth] = useStored("smooth", 0);
   const [logs, setLogs] = useStored<Record<string, boolean>>("logs", {});
   const [hidden, setHidden] = useStored<string[]>("hiddenPanels", []);
   const [narrow, setNarrow] = useStored("listNarrow", false);
+  const [trim, setTrim] = useStored("trim", false);
+  const [bundled, setBundled] = useStored("bundled", false);
+  const [range, setRange] = useState<[number, number] | null>(null);
 
   const diff = useMemo(() => differing(runs), [runs]);
   const value = (r: Run, key: string): unknown => key === "source" ? r.source : key === "project" ? r.project ?? "(none)" : key === "state" ? r.state : r.settings[key];
@@ -32,8 +39,13 @@ export function Workspace({ runs, theme, say }: Shared) {
   }, [runs, filter, sortBy]);
   // Until the reader chooses, the first eight are drawn: that is how many colours can be told apart.
   const drawnRuns = useMemo(() => (picked ? shown.filter(r => picked.includes(r.id)) : shown.slice(0, 8)), [shown, picked]);
-  const slots = useSlots(drawnRuns.map(r => r.id));
-  const drawn = useMemo(() => asDrawn(drawnRuns, slots), [drawnRuns, slots]);
+  // Grouped and bundled, each group is one line (its mean) and takes one colour; otherwise each run does.
+  const groupOf = (r: Run) => fmt(value(r, groupBy)) || "(not set)";
+  const asGroups = bundled && !!groupBy;
+  const slots = useSlots(asGroups ? [...new Set(drawnRuns.map(groupOf))] : drawnRuns.map(r => r.id));
+  const slotOf = (r: Run) => slots[asGroups ? groupOf(r) : r.id] ?? 0;
+  const drawn = useMemo(() => asDrawn(drawnRuns, slots, asGroups ? groupOf : undefined), [drawnRuns, slots, asGroups, groupBy]);
+  const lineCount = asGroups ? new Set(drawnRuns.map(groupOf)).size : drawnRuns.length;
   const isOn = (id: string) => drawnRuns.some(r => r.id === id);
   const toggle = (ids: string[], on: boolean) => {
     const now = new Set(drawnRuns.map(r => r.id));
@@ -58,6 +70,7 @@ export function Workspace({ runs, theme, say }: Shared) {
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
   const view: View = {
     x: xNow, xLabel: xChoices.find(c => c[0] === xNow)![1].replace("time (minutes)", "minutes"), smooth, logs, theme, tickN: grown,
+    range, setRange, trim, bundled: asGroups,
     setLog: (key, on) => setLogs(old => ({ ...old, [key]: on })),
   };
   const plain = numbers.filter(k => !k.startsWith("sys/") && !k.includes(".") && !clocks.includes(k));
@@ -66,10 +79,12 @@ export function Workspace({ runs, theme, say }: Shared) {
   const machine = numbers.filter(k => k.startsWith("sys/"));
   const visible = (list: string[]) => list.filter(k => !hidden.includes(k));
 
+  // Under each name, the settings that tell these runs apart: short ones, and at most three.
+  const sub = diff.filter(k => shown.every(r => String(r.settings[k] ?? "").length <= 14)).slice(0, 3);
   const groups = useMemo(() => {
     if (!groupBy) return [["", shown] as [string, Run[]]];
     const m = new Map<string, Run[]>();
-    for (const r of shown) { const g = fmt(value(r, groupBy)) || "(not set)"; m.set(g, [...(m.get(g) ?? []), r]); }
+    for (const r of shown) { const g = groupOf(r); m.set(g, [...(m.get(g) ?? []), r]); }
     return [...m].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
   }, [shown, groupBy]);
 
@@ -86,55 +101,60 @@ export function Workspace({ runs, theme, say }: Shared) {
     <div className={"workspace" + (narrow ? " narrow" : "")}>
       <aside className="runs" aria-label="Runs">
         <div className="row">
-          <input type="search" className="grow" placeholder="Filter: name, tag, lam=0.2" value={filter} aria-label="Filter the runs" onChange={e => setFilter(e.target.value)} />
-          <button className="small" title={narrow ? "widen the list" : "narrow the list"} onClick={() => setNarrow(!narrow)}>{narrow ? "»" : "«"}</button>
+          <input type="search" className="grow" placeholder="Filter runs: a name, a tag, lam=0.2" value={filter} aria-label="Filter the runs" onChange={e => setFilter(e.target.value)} />
+          <button className="small ghost" title={narrow ? "Widen the list" : "Narrow the list"} aria-label={narrow ? "Widen the list" : "Narrow the list"} onClick={() => setNarrow(!narrow)}>{narrow ? "›" : "‹"}</button>
         </div>
-        <div className="row">
-          <label className="inline">group<select value={groupBy} onChange={e => setGroupBy(e.target.value)}>
-            <option value="">none</option><option value="source">source</option><option value="project">project</option><option value="state">state</option>
+        <div className="row small muted">
+          <label className="inline">Group by<select value={groupBy} onChange={e => setGroupBy(e.target.value)}>
+            <option value="">nothing</option><option value="source">source</option><option value="project">project</option><option value="state">state</option>
             {diff.map(k => <option key={k} value={k}>{k}</option>)}</select></label>
-          <label className="inline">sort<select value={sortBy} onChange={e => setSortBy(e.target.value)}>
+          <label className="inline">Sort by<select value={sortBy} onChange={e => setSortBy(e.target.value)}>
             <option value="newest">newest</option><option value="name">name</option><option value="step">furthest</option>
             {diff.map(k => <option key={k} value={"set:" + k}>{k}</option>)}</select></label>
         </div>
-        <div className="row muted small">
-          <span>{drawnRuns.length} drawn of {shown.length}{shown.length !== runs.length ? ` (${runs.length} in all)` : ""}</span><span className="grow" />
-          <button className="small" onClick={() => setPicked(shown.slice(0, 8).map(r => r.id))}>first 8</button>
-          <button className="small" onClick={() => setPicked([])}>none</button>
+        <div className="row small muted">
+          <span>{drawnRuns.length} of {shown.length} drawn{shown.length !== runs.length ? `, ${runs.length} in all` : ""}</span><span className="grow" />
+          <button className="small ghost" onClick={() => setPicked(shown.slice(0, 8).map(r => r.id))}>First 8</button>
+          <button className="small ghost" onClick={() => setPicked([])}>None</button>
         </div>
-        {drawnRuns.length > 8 && <p className="note-warn small">More than eight runs are drawn. There are eight colours that can be told apart, so the rest are grey; hover a chart to read which is which.</p>}
+        {lineCount > 8 && <p className="note-warn small">More than eight lines are drawn. Eight colours can be told apart, so the rest are grey; point at a chart to read which is which, or group the runs.</p>}
         <div className="runlist">
           {groups.map(([label, list]) => (
             <div key={label}>
-              {groupBy && <div className="grouphead"><input type="checkbox" aria-label={`draw all of ${label}`} checked={list.every(r => isOn(r.id))}
-                onChange={e => toggle(list.map(r => r.id), e.target.checked)} /><b>{groupBy} {label}</b><span className="muted">{list.length}</span></div>}
+              {groupBy && <div className="grouphead">
+                <label className="dot" title={`Draw or hide all of ${label}`} style={{ "--c": asGroups ? slotVar(slots[label] ?? 0) : "var(--fg)" } as React.CSSProperties}>
+                  <input type="checkbox" aria-label={`draw all of ${label}`} checked={list.every(r => isOn(r.id))} onChange={e => toggle(list.map(r => r.id), e.target.checked)} /><i /></label>
+                <b>{groupBy} {label}</b><span>{list.length} run{list.length === 1 ? "" : "s"}</span></div>}
               {list.map(r => (
                 <div key={r.id} className={"runrow" + (isOn(r.id) ? " on" : "")}>
-                  <input type="checkbox" checked={isOn(r.id)} aria-label={`draw ${r.name}`} onChange={e => toggle([r.id], e.target.checked)} />
-                  <i className="swatch" style={{ background: isOn(r.id) ? slotVar(slots[r.id]) : "transparent" }} />
-                  <a href={runHref(r.id)} title={r.id}>{r.name}</a>
-                  <Badge run={r} />
-                  <span className="num muted">{r.step == null ? "" : tick(r.step)}</span>
+                  <label className="dot" title={isOn(r.id) ? "Drawn. Click to hide." : "Click to draw."} style={{ "--c": slotVar(slotOf(r)) } as React.CSSProperties}>
+                    <input type="checkbox" checked={isOn(r.id)} aria-label={`draw ${r.name}`} onChange={e => toggle([r.id], e.target.checked)} /><i /></label>
+                  <div className="who"><a href={runHref(r.id)} title={r.id}>{r.name}</a>
+                    <span className="sub">{sub.filter(k => r.settings[k] !== undefined).map(k => <span key={k}><b>{k}</b>{fmt(r.settings[k])}</span>)}</span></div>
+                  <div className="side"><Badge run={r} /><span>{r.step == null ? "" : "step " + tick(r.step)}</span></div>
                 </div>
               ))}
             </div>
           ))}
-          {!runs.length && <div className="muted small" style={{ padding: 10 }}>No runs yet. Add a source and sync:<pre>rt source add NAME --root /path/to/runs --ssh HOST{"\n"}rt sync</pre></div>}
+          {!runs.length && <div className="muted small" style={{ padding: "14px 0" }}>No runs yet. Say where runs are written, then copy them:<pre>rt source add NAME --root /path/to/runs --ssh HOST{"\n"}rt sync</pre></div>}
         </div>
       </aside>
 
       <section className="main">
         <div className="row toolbar">
           <div className="tabs" role="tablist">
-            {[["charts", "Charts"], ["table", "Table"], ["settings", "Settings"], ["sweep", "One number against a setting"]].map(([k, label]) =>
-              <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>)}
+            {[["charts", "Charts"], ["table", "Table"], ["settings", "Settings"], ["sweep", "Against a setting"]].map(([k, label]) =>
+              <button key={k} role="tab" aria-selected={tab === k} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
           </div>
           <span className="grow" />
           {tab === "charts" && <>
-            <label className="inline">against<select value={xNow} onChange={e => setX(e.target.value)}>{xChoices.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-            <label className="inline" title="a running average; the line as logged stays behind it, faint">smoothing
-              <input type="range" min={0} max={0.99} step={0.01} value={smooth} onChange={e => setSmooth(+e.target.value)} /><span className="mono">{smooth.toFixed(2)}</span></label>
-            <button onClick={exportPage}>Export as a page</button>
+            {range && <button className="small" onClick={() => setRange(null)}>Reset zoom</button>}
+            {groupBy && <button className="small" aria-pressed={bundled} title="Draw each group as one line, the mean of its runs, with a band from the lowest to the highest" onClick={() => setBundled(!bundled)}>One line per group</button>}
+            <button className="small" aria-pressed={trim} title="Fit each y axis to the middle 96% of the values, so one spike does not flatten the rest" onClick={() => setTrim(!trim)}>Ignore outliers</button>
+            <label className="inline">Against<select value={xNow} onChange={e => { setX(e.target.value); setRange(null); }}>{xChoices.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+            <label className="inline" title="A running average. The line as logged stays behind it, faint.">Smoothing
+              <input type="range" min={0} max={0.99} step={0.01} value={smooth} onChange={e => setSmooth(+e.target.value)} /><span>{smooth.toFixed(2)}</span></label>
+            <button className="small" onClick={exportPage}>Export page</button>
           </>}
         </div>
 
@@ -142,35 +162,35 @@ export function Workspace({ runs, theme, say }: Shared) {
           <div className="grid">{visible(plain).map(k => <Panel key={k} name={k} runs={drawn} view={view} sync="ws" onHide={() => setHidden([...hidden, k])} />)}</div>
           {[...nested].map(([g, list]) => (
             <details key={g} className="section" open={list.length <= 6}>
-              <summary><b className="mono">{g}</b> <span className="muted">{list.length} numbers</span></summary>
+              <summary>{g} <span className="muted">{list.length} numbers</span></summary>
               <div className="grid">{visible(list).map(k => <Panel key={k} name={k} title={k.slice(g.length + 1)} runs={drawn} view={view} sync="ws" onHide={() => setHidden([...hidden, k])} />)}</div>
             </details>
           ))}
           {machine.length > 0 && (
             <details className="section">
-              <summary><b>The machine</b> <span className="muted">{machine.length} numbers, against minutes since the run began</span></summary>
+              <summary>The machine <span className="muted">{machine.length} numbers, against minutes since the run began</span></summary>
               <div className="grid">{visible(machine).map(k => <Panel key={k} name={k} title={k.slice(4)} runs={drawn} view={view} sync="ws-sys" onHide={() => setHidden([...hidden, k])} />)}</div>
             </details>
           )}
-          {hidden.length > 0 && <p className="muted small">{hidden.length} hidden: {hidden.map(k => <button key={k} className="small" onClick={() => setHidden(hidden.filter(h => h !== k))}>{k} ＋</button>)}</p>}
+          {hidden.length > 0 && <p className="muted small row">Hidden charts, click to bring back: {hidden.map(k => <button key={k} className="small" onClick={() => setHidden(hidden.filter(h => h !== k))}>{k}</button>)}</p>}
           {!numbers.length && keyMap && <p className="muted">These runs have logged no numbers yet.</p>}
         </>)}
 
-        {tab === "table" && <RunTable runs={shown} diff={diff} metrics={plain} slots={slots} isOn={isOn} toggle={toggle} />}
-        {tab === "settings" && <SettingsDiff runs={drawnRuns} slots={slots} />}
-        {tab === "sweep" && <Sweep runs={drawnRuns} slots={slots} metrics={[...plain, ...[...nested.values()].flat()]} />}
+        {tab === "table" && <RunTable runs={shown} diff={diff} metrics={plain} slotOf={slotOf} isOn={isOn} toggle={toggle} />}
+        {tab === "settings" && <SettingsDiff runs={drawnRuns} slotOf={slotOf} />}
+        {tab === "sweep" && <Sweep runs={drawnRuns} slotOf={slotOf} metrics={[...plain, ...[...nested.values()].flat()]} />}
       </section>
     </div>
   );
 }
 
-function RunTable({ runs, diff, metrics, slots, isOn, toggle }:
-  { runs: Run[]; diff: string[]; metrics: string[]; slots: Record<string, number>; isOn: (id: string) => boolean; toggle: (ids: string[], on: boolean) => void }) {
+function RunTable({ runs, diff, metrics, slotOf, isOn, toggle }:
+  { runs: Run[]; diff: string[]; metrics: string[]; slotOf: (r: Run) => number; isOn: (id: string) => boolean; toggle: (ids: string[], on: boolean) => void }) {
   const [sort, setSort] = useState<{ key: string; dir: number }>({ key: "", dir: 1 });
   const val = (r: Run, k: string): any => k.startsWith("set:") ? r.settings[k.slice(4)] : k.startsWith("m:") ? r.latest[k.slice(2)] : (r as any)[k];
   const rows = sort.key ? [...runs].sort((a, b) => { const p = val(a, sort.key), q = val(b, sort.key); return (p == null ? 1 : 0) - (q == null ? 1 : 0) || (p < q ? -1 : p > q ? 1 : 0) * sort.dir; }) : runs;
   const Th = ({ k, label, num }: { k: string; label: string; num?: boolean }) =>
-    <th className={"sort" + (num ? " num set" : "")} onClick={() => setSort({ key: k, dir: sort.key === k ? -sort.dir : 1 })}>{label}{sort.key === k ? (sort.dir > 0 ? " ↑" : " ↓") : ""}</th>;
+    <th className={"sort" + (num ? " num" : "")} onClick={() => setSort({ key: k, dir: sort.key === k ? -sort.dir : 1 })}>{label}{sort.key === k ? (sort.dir > 0 ? " ↑" : " ↓") : ""}</th>;
   return (
     <div className="panel"><div className="scroll"><table>
       <thead><tr><th /><Th k="name" label="run" /><Th k="state" label="state" /><Th k="step" label="step" num /><Th k="seconds" label="time" num /><Th k="started" label="started" />
@@ -178,7 +198,7 @@ function RunTable({ runs, diff, metrics, slots, isOn, toggle }:
       <tbody>{rows.map(r => (
         <tr key={r.id} className={isOn(r.id) ? "sel" : ""}>
           <td><input type="checkbox" checked={isOn(r.id)} aria-label={`draw ${r.name}`} onChange={e => toggle([r.id], e.target.checked)} /></td>
-          <td>{isOn(r.id) && <i className="swatch" style={{ background: slotVar(slots[r.id]) }} />}<a href={runHref(r.id)}>{r.name}</a> <span className="muted">{r.source}</span> {r.tags.map(t => <span key={t} className="tag">{t}</span>)}</td>
+          <td>{isOn(r.id) && <i className="swatch" style={{ background: slotVar(slotOf(r)) }} />}<a href={runHref(r.id)}>{r.name}</a> <span className="muted">{r.source}</span> {r.tags.map(t => <span key={t} className="tag">{t}</span>)}</td>
           <td><Badge run={r} /></td>
           <td className="num">{r.total ? `${fmt(r.step ?? 0)} / ${fmt(r.total)}` : fmt(r.step)}</td>
           <td className="num">{dur(r.seconds)}</td><td>{when(r.started)}</td>
@@ -191,7 +211,7 @@ function RunTable({ runs, diff, metrics, slots, isOn, toggle }:
   );
 }
 
-function SettingsDiff({ runs, slots }: { runs: Run[]; slots: Record<string, number> }) {
+function SettingsDiff({ runs, slotOf }: { runs: Run[]; slotOf: (r: Run) => number }) {
   const [all, setAll] = useState(false);
   const diff = differing(runs);
   const keys = all ? [...new Set(runs.flatMap(r => Object.keys(r.settings)))].sort() : diff;
@@ -201,8 +221,8 @@ function SettingsDiff({ runs, slots }: { runs: Run[]; slots: Record<string, numb
       <div className="row"><h2>{all ? "Every setting" : "Where the settings differ"}</h2><span className="grow" />
         <button className="small" aria-pressed={all} onClick={() => setAll(!all)}>show every setting</button></div>
       <div className="scroll"><table>
-        <thead><tr><th className="set">setting</th>{runs.map(r => <th key={r.id} className="num"><i className="swatch" style={{ background: slotVar(slots[r.id]) }} /><a href={runHref(r.id)}>{r.name}</a></th>)}</tr></thead>
-        <tbody>{keys.map(k => <tr key={k} className={diff.includes(k) && all ? "sel" : ""}><td className="mono">{k}</td>
+        <thead><tr><th>setting</th>{runs.map(r => <th key={r.id} className="num"><i className="swatch" style={{ background: slotVar(slotOf(r)) }} /><a href={runHref(r.id)}>{r.name}</a></th>)}</tr></thead>
+        <tbody>{keys.map(k => <tr key={k} className={diff.includes(k) && all ? "sel" : ""}><td>{k}</td>
           {runs.map(r => <td key={r.id} className="num clip" title={String(r.settings[k] ?? "")}>{fmt(r.settings[k])}</td>)}</tr>)}</tbody>
       </table></div>
       {!keys.length && <p className="muted">These runs were started with the same settings.</p>}
@@ -211,14 +231,14 @@ function SettingsDiff({ runs, slots }: { runs: Run[]; slots: Record<string, numb
 }
 
 /* One dot per run: a number the runs logged, against a setting they were started with. The picture for choosing a value. */
-function Sweep({ runs, slots, metrics }: { runs: Run[]; slots: Record<string, number>; metrics: string[] }) {
+function Sweep({ runs, slotOf, metrics }: { runs: Run[]; slotOf: (r: Run) => number; metrics: string[] }) {
   const [pick, setPick] = useStored<{ setting?: string; metric?: string; logX?: boolean; logY?: boolean }>("sweep", {});
   const numeric = [...new Set(runs.flatMap(r => Object.keys(r.settings)))].filter(k => runs.some(r => isNum(r.settings[k])));
   const varied = differing(runs).filter(k => numeric.includes(k));
   const setting = pick.setting && numeric.includes(pick.setting) ? pick.setting : varied[0] ?? numeric[0];
   const metric = pick.metric && metrics.includes(pick.metric) ? pick.metric : metrics[0];
   if (!setting || !metric) return <p className="muted">Tick runs that have a setting that is a number, and that have logged numbers.</p>;
-  const pts = runs.map(r => ({ x: r.settings[setting] as number, y: r.latest[metric], name: r.name, slot: slots[r.id] ?? 0 }))
+  const pts = runs.map(r => ({ x: r.settings[setting] as number, y: r.latest[metric], name: r.name, slot: slotOf(r) }))
     .filter(p => isNum(p.x) && isNum(p.y) && (!pick.logX || p.x > 0) && (!pick.logY || p.y > 0)).sort((a, b) => a.x - b.x);
   const W = 900, H = 380, m = { l: 70, r: 170, t: 16, b: 46 };
   const span = (vs: number[], log?: boolean): [number, number] => {
@@ -260,7 +280,7 @@ function Sweep({ runs, slots, metrics }: { runs: Run[]; slots: Record<string, nu
           })}
         </svg>
       )}
-      <div className="scroll"><table><thead><tr><th>run</th><th className="num set">{setting}</th><th className="num set">{metric}</th></tr></thead>
+      <div className="scroll"><table><thead><tr><th>run</th><th className="num">{setting}</th><th className="num">{metric}</th></tr></thead>
         <tbody>{pts.map(p => <tr key={p.name}><td><i className="swatch" style={{ background: slotVar(p.slot) }} />{p.name}</td><td className="num">{fmt(p.x)}</td><td className="num">{fmt(p.y)}</td></tr>)}</tbody></table></div>
     </div>
   );

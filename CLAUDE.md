@@ -18,7 +18,10 @@ between the three parts.
   from the run folders, bump `VERSION` when its tables change.
 - `web/` — the viewer (TypeScript, React, uPlot, Vite). `npm run build` writes `runtracker/static/app/`,
   which is committed so that installing needs no Node. Rebuild and commit it with any change under `web/`.
-- `runtracker/static/` — `style.css` is shared by the app and exported pages. `charts.js` and `export.js`
+- `web/src/app.css` is the app's whole stylesheet and says what the design is: colour only for data and run
+  state, charts unboxed, Instrument Sans, monospace only for real code. Charts are meant to be rich in what
+  they can do (linked zoom, inspector, bands) while carrying little ink that is not data.
+- `runtracker/static/` — `style.css` styles exported pages and the classic viewer. `charts.js` and `export.js`
   draw exported pages and must depend on nothing but the browser. `app.js`/`index.html` are the earlier
   plain viewer, served at `/classic`.
 - `claude-workspace/` — working notes for this project.

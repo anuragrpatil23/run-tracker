@@ -36,7 +36,7 @@ function Words({ id, name, find, at, grown }: { id: string; name: string; find: 
     && rows.filter((r, j) => j > 0 && r.cells[i] !== rows[j - 1].cells[i]).length < Math.max(2, rows.length * 0.3));
   return (
     <section className="panel">
-      <div className="row"><h2 className="mono">{name}</h2><span className="muted">{data.shown} of {data.total} logged lines{rows.length < data.shown ? `, the first ${rows.length} shown` : ""}</span>
+      <div className="row"><h2>{name}</h2><span className="muted">{data.shown} of {data.total} logged lines{rows.length < data.shown ? `, the first ${rows.length} shown` : ""}</span>
         <span className="grow" /><button className="small" aria-pressed={changes} onClick={() => setChanges(!changes)}>only lines where the words changed</button></div>
       <p className="muted small">Read down to watch it form. A word in an outlined box was not in the row above; a number in colour changed from the row above.</p>
       <div className="timeline" ref={box}><table>
@@ -65,12 +65,14 @@ export function RunPage({ id, query, theme, say }: { id: string; query: URLSearc
   const [x, setX] = useStored("x", "step");
   const [smooth, setSmooth] = useStored("smooth", 0);
   const [logs, setLogs] = useStored<Record<string, boolean>>("logs", {});
+  const [trim, setTrim] = useStored("trim", false);
+  const [range, setRange] = useState<[number, number] | null>(null);
   const keys = keyMap?.[id] ?? [];
   const numbers = keys.filter(k => k.kind === "number").map(k => k.key);
   const clocks = keys.filter(k => k.kind === "number" && k.mono && (k.hi ?? 0) > (k.lo ?? 0) && !k.key.includes(".") && !k.key.startsWith("sys/")).map(k => k.key);
   const xChoices: [string, string][] = [["step", "step"], ...clocks.map(k => [k, k] as [string, string]), ["_t", "time (minutes)"]];
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
-  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })) };
+  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim };
   const drawn = useMemo(() => (d ? [{ id, name: d.name, slot: 1 }] : []), [id, d?.name]);
   const plain = numbers.filter(k => !k.includes(".") && !k.startsWith("sys/") && !clocks.includes(k));   // rows and minutes are axes, not charts
   const nested = new Map<string, string[]>();
@@ -87,9 +89,9 @@ export function RunPage({ id, query, theme, say }: { id: string; query: URLSearc
     ["overview", "Settings and notes"], ["output", "Output"], ["files", `Files (${d.files.length})`]];
   return (
     <div className="stack">
-      <div className="panel">
-        <p className="eyebrow">{d.source.toUpperCase()} · {d.sync.host || "this machine"}{wb ? ` · logged with the W&B client${wb.project ? `, project ${wb.project}` : ""}` : ""}
-          {d.synced ? ` · copied ${dur(Date.now() / 1000 - d.synced)} ago` : ""}</p>
+      <div className="runhead">
+        <p className="where"><a href="#/">Runs</a> / {d.source}, on {d.sync.host || "this machine"}{wb ? `, logged with the W&B client${wb.project ? ` in project ${wb.project}` : ""}` : ""}
+          {d.synced ? `, copied ${dur(Date.now() / 1000 - d.synced)} ago` : ""}</p>
         <div className="row"><h1>{d.name}</h1><Badge run={d} />{d.why && <span className={["stalled", "died", "failed"].includes(d.state) ? "note-warn" : "muted"}>{d.why}</span>}
           {d.tags.map(t => <span key={t} className="tag">{t}</span>)}</div>
         <dl className="kv">
@@ -104,25 +106,27 @@ export function RunPage({ id, query, theme, say }: { id: string; query: URLSearc
         </dl>
       </div>
 
-      <div className="panel"><div className="two">
+      <div className="two">
         <label>Before the run: what do you expect to see?<textarea defaultValue={d.prediction} placeholder="Written before the result is in. Shown beside it afterwards."
           onBlur={e => e.target.value !== d.prediction && save({ prediction: e.target.value })} /></label>
         <label>After: what happened, set against that?<textarea defaultValue={d.local.outcome ?? ""} placeholder="Filled in once the run has ended."
           onBlur={e => e.target.value !== (d.local.outcome ?? "") && save({ outcome: e.target.value })} /></label>
-      </div></div>
+      </div>
 
       <div className="row toolbar">
         <div className="tabs" role="tablist">{tabs.map(([k, label]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>)}</div>
         <span className="grow" />
         {tab === "charts" && <>
-          <label className="inline">against<select value={xNow} onChange={e => setX(e.target.value)}>{xChoices.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-          <label className="inline">smoothing<input type="range" min={0} max={0.99} step={0.01} value={smooth} onChange={e => setSmooth(+e.target.value)} /><span className="mono">{smooth.toFixed(2)}</span></label>
+          {range && <button className="small" onClick={() => setRange(null)}>Reset zoom</button>}
+          <button className="small" aria-pressed={trim} title="Fit each y axis to the middle 96% of the values" onClick={() => setTrim(!trim)}>Ignore outliers</button>
+          <label className="inline">Against<select value={xNow} onChange={e => { setX(e.target.value); setRange(null); }}>{xChoices.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+          <label className="inline">Smoothing<input type="range" min={0} max={0.99} step={0.01} value={smooth} onChange={e => setSmooth(+e.target.value)} /><span>{smooth.toFixed(2)}</span></label>
         </>}
       </div>
 
       {tab === "charts" && <>
         <div className="grid">{plain.map(k => <Panel key={k} name={k} runs={drawn} view={view} sync="run" />)}</div>
-        {[...nested].map(([g, list]) => <details key={g} className="section" open><summary><b className="mono">{g}</b> <span className="muted">{list.length} numbers</span></summary>
+        {[...nested].map(([g, list]) => <details key={g} className="section" open><summary>{g} <span className="muted">{list.length} numbers</span></summary>
           <div className="grid">{list.map(k => <Panel key={k} name={k} title={k.slice(g.length + 1)} runs={drawn} view={view} sync="run" />)}</div></details>)}
         {!numbers.length && <p className="muted">{d.lines ? "This run logs no numbers." : "Nothing has been logged yet."}</p>}
       </>}

@@ -17,7 +17,7 @@ function Search({ q, runs }: { q: string; runs: Run[] }) {
   if (!data) return <p className="muted">Searching…</p>;
   return (
     <div className="stack">
-      <header><p className="eyebrow">THE WORDS LOGGED IN EVERY RUN</p><h1>“{q}”</h1>
+      <header className="runhead"><h1>“{q}” in the words runs logged</h1>
         <p className="lede">{data.results.length ? "For each run and field: the first step at which it appears, then the lines that hold it." : "No run has logged that in a field of words."}</p></header>
       {data.results.map(res => (
         <section key={res.run} className="panel"><h2><a href={runHref(res.run)}>{name(res.run)}</a> <span className="muted small">{res.run}</span></h2>
@@ -56,17 +56,15 @@ export function App() {
     <div className="app">
       <nav className="top">
         <a className="brand" href="#/">Train Run Tracker</a>
-        <a href="#/" aria-current={kind !== "run" && kind !== "search" ? "page" : undefined}>Runs</a>
-        <span className="muted small" title={(sync?.error ?? "") + "\n" + (sync?.lines ?? []).join("\n")}>
-          {!sync ? "" : sync.busy ? "copying…" : sync.error ? <span className="note-warn">last copy failed: {sync.error.split("\n")[0]}</span>
-            : sync.last ? `copied ${dur((data?.now ?? 0) - sync.last)} ago${sync.watch ? `, again every ${sync.watch} s while a run is going` : ""}` : ""}</span>
-        <button className="small" disabled={sync?.busy} onClick={syncNow}>Sync now</button>
         <span className="grow" />
+        {sync && (sync.busy || sync.error || sync.last) && (
+          <span className={"sync" + (sync.busy ? " busy" : sync.error ? " bad" : "")} title={sync.error ? sync.error : (sync.lines ?? []).join("\n")}>
+            <i />{sync.busy ? "Copying" : sync.error ? "A source could not be reached" : `Copied ${dur((data?.now ?? 0) - (sync.last ?? 0))} ago`}</span>)}
+        <button className="small" disabled={sync?.busy} title={sync?.error ?? "Copy what is new from the sources"} onClick={syncNow}>{sync?.error ? "Try again" : "Sync"}</button>
         <form role="search" onSubmit={e => { e.preventDefault(); if (q.trim()) location.hash = "#/search/" + enc(q.trim()); }}>
-          <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search the words in every run, e.g. heavens" aria-label="Search the words logged in every run" />
-          <button>Search</button>
+          <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search the words runs logged" aria-label="Search the words logged in every run" />
         </form>
-        <button className="small" title="switch between light and dark" onClick={() => setTheme(shownTheme === "dark" ? "light" : "dark")}>{shownTheme === "dark" ? "Light" : "Dark"}</button>
+        <button className="small ghost" title="Switch between light and dark" onClick={() => setTheme(shownTheme === "dark" ? "light" : "dark")}>{shownTheme === "dark" ? "Light" : "Dark"}</button>
       </nav>
       <main>
         {!data ? <p className="muted">Loading…</p>
