@@ -9,7 +9,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import derived, export, index, store, sync
+from urllib.parse import unquote
+
+from . import derived, export, index, scan, store, sync
 
 STATIC = Path(__file__).parent / "static"
 syncing = {"busy": False, "last": None, "error": None, "lines": [], "watch": None}
@@ -66,10 +68,19 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def scan(self, method, url):
+        """A request for a project's scanner: /api/v2/scan/<project>/<route>, passed on and handed back as it comes."""
+        project, _, route = unquote(url.path[len("/api/v2/scan/"):]).rpartition("/")
+        body = self.rfile.read(int(self.headers.get("Content-Length") or 0)) if method == "POST" else b""
+        status, reply = scan.forward(project, route, method, url.query, body)
+        self.send(reply, "application/json", status)
+
     def do_GET(self):
         if not self.local_only():
             return
         url = urlparse(self.path)
+        if url.path.startswith("/api/v2/scan/"):
+            return self.scan("GET", url)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path == "/api/runs":
@@ -148,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if "application/json" not in (self.headers.get("Content-Type") or ""):
             return self.send({"error": "send JSON"}, code=415)
+        if urlparse(self.path).path.startswith("/api/v2/scan/"):
+            return self.scan("POST", urlparse(self.path))
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             path = urlparse(self.path).path

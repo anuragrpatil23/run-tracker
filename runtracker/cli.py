@@ -37,6 +37,11 @@ def main(argv=None):
 
     sub.add_parser("ls", help="list the runs")
 
+    s = sub.add_parser("scan", help="say where a project's scanner answers, for running text through a trained network")
+    s.add_argument("action", nargs="?", default="list", choices=["list", "add", "remove"])
+    s.add_argument("project", nargs="?")
+    s.add_argument("--url", help="the scanner's address on this machine, such as http://127.0.0.1:8790")
+
     s = sub.add_parser("fetch", help="bring one large file of a run to the laptop")
     s.add_argument("run"); s.add_argument("file")
 
@@ -76,6 +81,19 @@ def main(argv=None):
         elif a.cmd == "view":
             from . import server
             server.serve(a.port, a.watch, not a.no_open)
+        elif a.cmd == "scan":
+            from . import scan
+            if a.action == "add":
+                if not a.project or not a.url:
+                    p.error("scan add needs a PROJECT and --url")
+                scan.set_address(a.project, a.url)
+            elif a.action == "remove":
+                scan.set_address(a.project or "", "")
+            found = scan.all_addresses()
+            for project, url in found.items():
+                print("%-28s %s" % (project, url))
+            if not found:
+                print("no scanners set. A scanner is started by the experiment; then: rt scan add PROJECT --url http://127.0.0.1:PORT")
         elif a.cmd == "ls":
             rows = store.all_summaries()
             print("%-44s %-9s %10s %9s  %s" % ("run", "state", "step", "time", "copied"))

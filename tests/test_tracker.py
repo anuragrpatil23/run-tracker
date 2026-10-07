@@ -316,5 +316,57 @@ class Index(unittest.TestCase):
         self.assertEqual(self.index.refresh(), [])
 
 
+class Scan(unittest.TestCase):
+    """The tracker's side of Scan, against a scanner for a toy network that is not a transformer."""
+
+    def setUp(self):
+        import threading
+        self.tmp = tempfile.TemporaryDirectory()
+        os.environ["RUN_TRACKER_DATA"] = str(Path(self.tmp.name) / "data")
+        sys.path.insert(0, str(ROOT / "tests"))
+        import toy_scanner
+        from runtracker import scan
+        self.scan = scan
+        self.server = toy_scanner.serve()
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = "http://127.0.0.1:%d" % self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown(); self.server.server_close(); self.tmp.cleanup()
+
+    def ask(self, route, method="GET", query="", body=None):
+        status, reply = self.scan.forward("toys", route, method, query, json.dumps(body).encode() if body is not None else b"")
+        return status, json.loads(reply)
+
+    def test_requests_are_passed_on_and_replies_and_refusals_come_back(self):
+        self.assertEqual(self.ask("health")[1]["error"]["code"], "no_scanner")
+        self.scan.set_address("toys", self.url)
+        self.assertEqual(self.scan.all_addresses(), {"toys": self.url})
+        status, health = self.ask("health")
+        self.assertEqual((status, health["protocol"], health["max_tokens"]), (200, 1, 32))
+        graph = self.ask("graph", query="snapshot=toy%4010")[1]
+        self.assertEqual([n["id"] for n in graph["nodes"]], ["letters", "mix", "scores"])
+        run = self.ask("run", "POST", body={"text": "the sky is blue", "snapshot": "toy@10", "top": 4})[1]
+        self.assertEqual(([t["text"] for t in run["tokens"]], len(run["nodes"]["mix"]["grid"]["values"])), (["the", "sky", "is", "blue"], 4))
+        self.assertEqual(len(self.ask("values", query="run=%s&node=letters&token=1" % run["run"])[1]["values"]), 26)
+        differ = self.ask("contrast", "POST", body={"a": "the sky is blue", "b": "the sea is blue", "node": "mix"})[1]
+        self.assertEqual([p["same_text"] for p in differ["per_pair"]], [True, False, True, True])
+        self.assertEqual(self.ask("graph", query="snapshot=nope"), (404, {"error": {"code": "unknown_snapshot", "message": "there is no snapshot nope"}}))
+        self.assertEqual(self.ask("contrast", "POST", body={"a": "one two", "b": "one"})[1]["error"]["code"], "bad_request")
+        self.assertEqual(self.ask("health", "POST")[1]["error"]["code"], "bad_request")       # only the contract's routes, by its methods
+        self.assertEqual(self.ask("../../etc/passwd")[1]["error"]["code"], "bad_request")
+
+    def test_a_scanner_must_be_on_this_machine_and_answering(self):
+        for bad in ("http://example.com:8790", "https://127.0.0.1:8790", "http://127.0.0.1", "http://127.0.0.1:8790/elsewhere", "http://user@127.0.0.1:8790", "file:///etc/passwd"):
+            with self.assertRaises(ValueError):
+                self.scan.set_address("toys", bad)
+        self.scan.store.write_json(self.scan.store.project_dir("toys") / "scan.json", {"url": "http://example.com:80"})     # written by hand: still refused
+        self.assertEqual(self.ask("health")[1]["error"]["code"], "no_scanner")
+        self.scan.set_address("toys", "http://127.0.0.1:9")                              # nothing listens there
+        self.assertEqual(self.ask("health"), (502, self.ask("health")[1])); self.assertEqual(self.ask("health")[1]["error"]["code"], "unreachable")
+        self.scan.set_address("toys", "")
+        self.assertEqual(self.scan.all_addresses(), {})
+
+
 if __name__ == "__main__":
     unittest.main()
