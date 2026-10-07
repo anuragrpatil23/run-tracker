@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type Run = {
-  id: string; name: string; source: string; format: string; project: string; group: string | null;
+  id: string; name: string; source: string; format: string; project: string; group: string | null; apart: boolean;
   state: string; why: string; step: number | null; total: number | null; lines: number;
   started: number | null; ended: number | null; seconds: number | null;
   settings: Record<string, unknown>; latest: Record<string, number>;

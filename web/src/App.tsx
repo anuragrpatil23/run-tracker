@@ -46,8 +46,11 @@ export function App() {
   // A project is the top-level grouping: its runs are looked at together and nothing of one shows in another.
   // The page opens on the project chosen last, or the one with the newest run.
   const all = data?.runs ?? [];
-  const projects = [...new Set(all.map(r => r.project))].sort();
-  const newest = [...all].sort((a, b) => (b.started ?? 0) - (a.started ?? 0))[0]?.project ?? "";
+  // Projects set apart by a prefix on their source (made-up or trial runs) come last and are never the one opened on.
+  const apart = new Set(all.filter(r => r.apart).map(r => r.project));
+  const projects = [...new Set(all.map(r => r.project))].sort((a, b) => +apart.has(a) - +apart.has(b) || a.localeCompare(b));
+  const byNewest = [...all].sort((a, b) => (b.started ?? 0) - (a.started ?? 0));
+  const newest = (byNewest.find(r => !r.apart) ?? byNewest[0])?.project ?? "";
   const hashRun = decodeURI(hash.replace(/^#\/?/, "")).split("?")[0].replace(/^run\//, "");
   const project = (hash.startsWith("#/run/") && all.find(r => r.id === hashRun)?.project) || (projects.includes(chosen) ? chosen : newest);
   setScope(project);

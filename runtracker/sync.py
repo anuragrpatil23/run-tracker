@@ -36,7 +36,7 @@ class Source:
 
     def __init__(self, name, spec):
         self.name, self.root = name, spec["root"].rstrip("/")
-        self.ssh, self.scheduler = spec.get("ssh"), spec.get("scheduler")
+        self.ssh, self.scheduler, self.paused = spec.get("ssh"), spec.get("scheduler"), bool(spec.get("paused"))
 
     def run(self, script, stdout=subprocess.PIPE):
         """Run a shell script on the source and return what it printed, as bytes."""
@@ -229,6 +229,8 @@ def sync_all(only=None, say=print):
         raise SyncError("no sources yet. Add one with: rt source add NAME --root /path/to/runs [--ssh HOST] [--scheduler lsf]")
     failed = []
     for source in srcs:
+        if source.paused and not only:                      # kept for looking at, no longer copied from; naming it still syncs it
+            continue
         say("%s (%s)" % (source.name, (source.ssh + ":" if source.ssh else "") + source.root))
         try:
             ids = sync_source(source, say)

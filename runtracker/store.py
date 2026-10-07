@@ -276,7 +276,9 @@ def summary(run_id, path, now=None):
     return {
         "id": run_id, "name": name or run_id, "source": source, "format": meta.get("format") if wb else "tracker",
         # A project is the top-level grouping: the one named to wandb.init, or the source for runs that name none.
-        "project": wb.get("project") or meta.get("project") or source, "group": wb.get("group") or meta.get("group"),
+        # A source can put a prefix on its projects ("dummy-"), to keep made-up or trial runs visibly apart from real ones.
+        "project": (load_config()["sources"].get(source, {}).get("prefix") or "") + (wb.get("project") or meta.get("project") or source),
+        "group": wb.get("group") or meta.get("group"), "apart": bool(load_config()["sources"].get(source, {}).get("prefix")),
         "state": state, "why": why,
         "step": last.get("step", (status or {}).get("step")), "total": (status or {}).get("total"),
         "lines": len(log), "started": started, "ended": ended, "seconds": seconds,

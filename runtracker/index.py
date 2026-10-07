@@ -62,6 +62,10 @@ def db():
 def _signature(path):
     """A cheap fingerprint of a run folder: the size and time of each file that matters."""
     parts = []
+    try:                                                    # the sources' settings bear on a run's summary (its project's prefix)
+        parts.append("config:%d" % os.stat(store.data_dir() / "config.json").st_mtime_ns)
+    except OSError:
+        pass
     names = list(WATCHED)
     w = wandbfile.find(path)
     if w:

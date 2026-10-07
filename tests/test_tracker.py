@@ -232,6 +232,9 @@ class WandbFile(unittest.TestCase):
         s = self.store.summary(run_id, here)
         self.assertEqual((s["name"], s["state"], s["step"], s["format"], s["project"]), ("trial_lam0.2", "finished", 390, "wandb", "sae-trial"))
         self.assertEqual(self.store.summary("x/plain", self.store.runs_dir() / "nowhere")["project"], "x")     # no project named: the source stands in
+        self.store.save_config({"sources": {"wb": {"root": str(far.parent), "prefix": "dummy-", "paused": True}}})
+        self.assertEqual(self.store.summary(run_id, here)["project"], "dummy-sae-trial")
+        self.sync.sync_all(say=lambda *_: None)                                         # a paused source is passed over, not an error
         self.assertEqual(s["settings"], {"lam": 0.2, "features": 8192, "nested.lr": 0.0002})
         self.assertEqual(self.store.search("heavens")[0]["fields"][0]["field"], "sky.responds_to")
 

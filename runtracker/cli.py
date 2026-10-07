@@ -22,6 +22,8 @@ def main(argv=None):
     s.add_argument("--root", help="the folder that holds the run folders")
     s.add_argument("--ssh", help="the ssh host it is on, as named in ~/.ssh/config; leave out for this machine")
     s.add_argument("--scheduler", choices=["lsf", "slurm"], help="ask this scheduler for the state of each run's job")
+    s.add_argument("--prefix", help="put this in front of the source's project names, such as dummy- for made-up runs")
+    s.add_argument("--paused", action="store_true", help="keep the copied runs but stop copying from this source")
 
     s = sub.add_parser("sync", help="copy what is new from the sources")
     s.add_argument("name", nargs="?")
@@ -55,14 +57,15 @@ def main(argv=None):
             if a.action == "add":
                 if not a.name or not a.root:
                     p.error("source add needs a NAME and --root")
-                cfg["sources"][a.name] = {k: v for k, v in (("root", a.root), ("ssh", a.ssh), ("scheduler", a.scheduler)) if v}
+                cfg["sources"][a.name] = {k: v for k, v in (("root", a.root), ("ssh", a.ssh), ("scheduler", a.scheduler), ("prefix", a.prefix), ("paused", a.paused)) if v}
                 store.save_config(cfg)
             elif a.action == "remove":
                 cfg["sources"].pop(a.name, None)
                 store.save_config(cfg)          # the copied runs stay in place; delete the folder by hand if they should go
             for name, spec in cfg["sources"].items():
-                print("%-16s %s%s%s" % (name, spec["ssh"] + ":" if spec.get("ssh") else "", spec["root"],
-                                        "   scheduler: " + spec["scheduler"] if spec.get("scheduler") else ""))
+                print("%-16s %s%s%s%s%s" % (name, spec["ssh"] + ":" if spec.get("ssh") else "", spec["root"],
+                                            "   scheduler: " + spec["scheduler"] if spec.get("scheduler") else "",
+                                            "   projects prefixed " + spec["prefix"] if spec.get("prefix") else "", "   paused" if spec.get("paused") else ""))
             if not cfg["sources"]:
                 print("no sources yet")
         elif a.cmd == "sync":

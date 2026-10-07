@@ -98,6 +98,8 @@ rt fetch myproject/run1 step_0048828.pt       # bring one large file; resumes, a
 ```
 
 - A source is a folder of run folders: on an ssh host, or on this machine if `--ssh` is left out.
+- `--prefix dummy-` puts that in front of the source's project names, to keep made-up or trial runs
+  visibly apart from real ones. `--paused` keeps the copied runs but stops copying from the source.
 - It uses the ssh setup in `~/.ssh/config` as it is, in batch mode, so it can never ask for a
   password or store one. If the shared connection is closed it says so; open it with `ssh mycluster`.
 - One sync is two round trips however many runs there are: one to list files and ask the
