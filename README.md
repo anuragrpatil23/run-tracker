@@ -31,7 +31,7 @@ python train.py                  # writes ./wandb/offline-run-<date>_<time>-<id>
 Point a source at the `wandb` folder and the runs sync and show beside the others:
 
 ```sh
-rt source add myproject --ssh minerva --root /path/to/project/wandb --scheduler lsf
+rt source add myproject --ssh mycluster --root /path/to/project/wandb --scheduler lsf
 rt sync
 ```
 
@@ -90,16 +90,16 @@ The folder it writes is described in [docs/format.md](docs/format.md).
 ```sh
 pip install -e .          # once, on the laptop; gives the rt command (or use: python3 -m runtracker.cli)
 
-rt source add sae --ssh minerva --root /sc/arion/work/patila06/Learn-AI/train-sparse-autoencoder/runs --scheduler lsf
+rt source add myproject --ssh mycluster --root /path/on/the/cluster/to/runs --scheduler lsf
 rt sync                   # copy what is new
 rt sync --watch           # and again every 30 s while any run is still going
 rt ls
-rt fetch sae/f8192_lam0.2 step_0048828.pt     # bring one large file; resumes, and checks the checksum
+rt fetch myproject/run1 step_0048828.pt       # bring one large file; resumes, and checks the checksum
 ```
 
 - A source is a folder of run folders: on an ssh host, or on this machine if `--ssh` is left out.
 - It uses the ssh setup in `~/.ssh/config` as it is, in batch mode, so it can never ask for a
-  password or store one. If the shared connection is closed it says so; open it with `ssh minerva`.
+  password or store one. If the shared connection is closed it says so; open it with `ssh mycluster`.
 - One sync is two round trips however many runs there are: one to list files and ask the
   scheduler about jobs, one to fetch the new bytes.
 - Files over 2 MB that are not logs stay on the cluster. Their names and sizes come across.
