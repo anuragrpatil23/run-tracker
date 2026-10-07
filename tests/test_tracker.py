@@ -199,6 +199,26 @@ class WandbFile(unittest.TestCase):
         self.assertEqual(seen[-1], 40); self.assertEqual(seen, sorted(seen)); self.assertLess(seen[3], 40)
         self.assertEqual(r["log"], self.wb.load(self.FIXTURE)["log"])    # read in pieces, it is the same run
 
+    def test_histograms_pictures_tables_and_what_the_script_said_about_its_metrics(self):
+        import shutil
+        from runtracker import index
+        here = self.store.runs_dir() / "wb" / "rich"
+        shutil.copytree(ROOT / "tests" / "fixtures" / "rich", here)
+        run = index.refresh()[0]
+        said = {m["name"]: m for m in run["metrics"]}
+        self.assertEqual((said["val/*"]["step"], said["val/loss"]["summary"], said["val/accuracy"]["summary"]), ("epoch", ["min"], ["max"]))
+        kinds = {k["key"]: k["kind"] for k in index.keys_of(["wb/rich"])["wb/rich"]}
+        self.assertEqual((kinds["weights/encoder"], kinds["samples/pair"], kinds["top_tokens"], kinds["train/loss"]), ("histogram", "image", "table", "number"))
+        self.assertFalse([k for k in kinds if k.endswith(("._type", ".bins", ".sha256", ".path"))])     # the parts of a picture are not charts
+        h = index.media_of("wb/rich", "weights/encoder")["items"]
+        self.assertEqual((len(h), len(h[0]["bins"]) - len(h[0]["values"]), sum(h[0]["values"])), (6, 1, 2000))
+        shots = index.media_of("wb/rich", "samples/pair")["items"][0]
+        self.assertEqual(([f["caption"] for f in shots["files"]], shots["step"]), (["a", "b"], 9.0))
+        tables = index.media_of("wb/rich", "top_tokens")["items"]
+        self.assertEqual((tables[-1]["columns"], tables[-1]["rows"][0], tables[0]["missing"]), (["token", "fires", "kind"], [" sky", 3.95, "word"], True))
+        with self.assertRaises(KeyError):
+            self.store.media_file("wb/rich", "../../../config.json")
+
     def test_a_folder_of_offline_runs_syncs_and_shows_like_any_other(self):
         far = Path(self.tmp.name) / "far" / "wandb" / "offline-run-20261006_212449-eyv8dqyf"
         (far / "logs").mkdir(parents=True); (far / "files").mkdir()

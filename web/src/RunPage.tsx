@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, View } from "./Chart";
 import { ChartSections } from "./Sections";
-import { api, dur, enc, fmt, KeyInfo, Run, sizeText, usePoll, useStored, when } from "./lib";
+import { api, dur, enc, fmt, isAxis, KeyInfo, Run, sizeText, usePoll, useStored, when } from "./lib";
 import { Badge, Told } from "./Workspace";
 
 type Detail = Run & {
@@ -71,12 +71,13 @@ export function RunPage({ id, query, theme, say, about, setAbout, formulas, save
   const [range, setRange] = useState<[number, number] | null>(null);
   const keys = keyMap?.[id] ?? [];
   const numbers = keys.filter(k => k.kind === "number").map(k => k.key);
-  const clocks = keys.filter(k => k.kind === "number" && k.mono && (k.hi ?? 0) > (k.lo ?? 0) && !k.key.includes(".") && !k.key.startsWith("sys/")).map(k => k.key);
+  const clocks = keys.filter(k => isAxis(k, d?.metrics ?? [])).map(k => k.key);
   const xChoices: [string, string][] = [["step", "step"], ...clocks.map(k => [k, k] as [string, string]), ["_t", "time (minutes)"]];
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
-  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim, about, setAbout, formulas, saveFormula };
+  const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim, about, setAbout, formulas, saveFormula, defined: d?.metrics ?? [] };
   const drawn = useMemo(() => (d ? [{ id, name: d.name, slot: 1 }] : []), [id, d?.name]);
   const machine = numbers.filter(k => k.startsWith("sys/"));
+  const media = useMemo(() => keys.filter(k => ["histogram", "image", "table"].includes(k.kind)).map(k => ({ key: k.key, kind: k.kind })), [keyMap, id]);
   const wordGroups = [...new Set(keys.filter(k => k.kind === "words").map(k => (k.key.includes(".") ? k.key.split(".").slice(0, -1).join(".") : k.key)))];
   const { data: out } = usePoll<{ text: string }>(() => (tab === "output" ? api(`/api/v2/output?id=${enc(id)}`) : Promise.resolve({ text: "" })), tab === "output" ? 8000 : 0, [id, tab]);
 
@@ -123,8 +124,8 @@ export function RunPage({ id, query, theme, say, about, setAbout, formulas, save
         </>}
       </div>
 
-      {tab === "charts" && (numbers.some(k => !k.startsWith("sys/"))
-        ? <ChartSections numbers={numbers.filter(k => !k.startsWith("sys/"))} clocks={clocks} runs={drawn} view={view} sync="run" />
+      {tab === "charts" && (numbers.some(k => !k.startsWith("sys/")) || media.length
+        ? <ChartSections numbers={numbers.filter(k => !k.startsWith("sys/"))} clocks={clocks} runs={drawn} view={view} sync="run" media={media} />
         : <p className="muted">{d.lines ? "This run logs no numbers." : "Nothing has been logged yet."}</p>)}
       {tab === "words" && (wordGroups.length ? wordGroups.map(g => <Words key={g} id={id} name={g} find={(query.get("find") || "").toLowerCase()} at={query.get("at")} grown={grown} />)
         : <p className="muted">This run has logged no words: no field that is text or a list of text.</p>)}

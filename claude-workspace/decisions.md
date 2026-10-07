@@ -62,4 +62,6 @@ against four stand-in supervised runs (image classifier: train/val loss and accu
 with the W&B client offline when it is installed and tracker.py otherwise, under the project `sae-gpt2-mlp0`.
 Runs made before this keep their old flat names and sit in the project `sae` (their source).
 
-Still not read from W&B files: images, histograms, tables, and define_metric.
+Read from W&B files since 2026-10-07: histograms, pictures, tables and define_metric. Not read: audio, video, 3D
+objects, plots, artifacts, and tables with pictures in their cells. The tracker's own writer cannot log any of
+these kinds yet.

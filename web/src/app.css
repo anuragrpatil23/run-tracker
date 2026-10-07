@@ -209,3 +209,17 @@ nav.top [data-tip]::after{white-space:normal;width:max-content;max-width:360px}
 .toc>button{align-self:flex-start}
 nav.top label.project{font-size:12.5px} nav.top label.project select{border-color:transparent;background-color:var(--wash);font-weight:500;color:var(--fg);padding:5px 26px 5px 10px}
 nav.top label.project[data-tip]::after{left:0;right:auto}
+
+/* histograms, pictures and tables */
+figure.chart.media .now{font-size:11.5px;color:var(--faint)}
+figure.chart .tools select.runpick{border-color:transparent;font-size:12px;padding:1px 20px 1px 6px;max-width:150px;color:var(--soft);background-position:right 5px center}
+.strip{display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:6px}
+.strip canvas{width:100%;display:block;cursor:crosshair;border-bottom:1px solid var(--rule)}
+.strip .yscale{display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;font-size:11px;color:var(--muted)}
+.strip .readline{grid-column:2;font-size:12px;color:var(--muted);min-height:34px;padding-top:5px;line-height:1.35}
+.shots{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;align-content:flex-start}
+.shot{all:unset;cursor:zoom-in;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)} .shot:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.shot img{display:block;max-width:100%;min-height:72px;border-radius:5px;image-rendering:pixelated;background:var(--wash)}
+.shotbox{width:auto;max-width:min(1100px,100%)} .shotbox img{max-width:100%;max-height:74vh;min-width:min(60vw,420px);object-fit:contain;image-rendering:pixelated;border-radius:6px;background:var(--wash)}
+.sheet{overflow:auto;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)} .sheet table{font-size:12.5px} .sheet th{position:sticky;top:0;background:var(--bg)} .sheet td,.sheet th{padding-block:5px}
+.stepper{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--soft);min-height:26px} .stepper input[type=range]{flex:1;max-width:220px;width:auto}

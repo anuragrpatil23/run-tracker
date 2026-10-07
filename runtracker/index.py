@@ -9,6 +9,7 @@ a search of every word logged do not each mean reading every file again.
   line    one row per logged line: its step and its time
   point   one number: run, name, line
   word    one piece of text or list of words: run, name, line
+  media   one histogram, picture or table: run, name, line
 
 Names are dotted for nested values ("sky.fired"). What the run logged is stream 0; samples of the
 machine (GPU, memory) are stream 1, with names that start "sys/".
@@ -21,7 +22,7 @@ from pathlib import Path
 
 from . import derived, store, wandbfile
 
-VERSION = 4
+VERSION = 5
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, sig TEXT, lines INTEGER, sys INTEGER, summary TEXT) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS keys(run TEXT, key TEXT, kind TEXT, n INTEGER, last, lo REAL, hi REAL, mono INTEGER,
@@ -29,7 +30,10 @@ CREATE TABLE IF NOT EXISTS keys(run TEXT, key TEXT, kind TEXT, n INTEGER, last, 
 CREATE TABLE IF NOT EXISTS line(run TEXT, stream INTEGER, n INTEGER, step REAL, t REAL, PRIMARY KEY(run, stream, n)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS point(run TEXT, key TEXT, n INTEGER, v REAL, PRIMARY KEY(run, key, n)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS word(run TEXT, key TEXT, n INTEGER, v TEXT, PRIMARY KEY(run, key, n)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS media(run TEXT, key TEXT, n INTEGER, v TEXT, PRIMARY KEY(run, key, n)) WITHOUT ROWID;
 """
+# What the W&B client logs that is neither a number nor words, by the name it gives each kind.
+MEDIA = {"histogram": "histogram", "image-file": "image", "images/separated": "image", "table-file": "table"}
 WATCHED = ("log.jsonl", "system.jsonl", "status.json", "meta.json", "config.json", "_sync.json", "_local.json")
 _lock = threading.RLock()
 _db = None
@@ -94,12 +98,18 @@ def _system_names(sample):
 
 
 def _ingest(con, run_id, records, start, stream, keys):
-    lines, points, words = [], [], []
+    lines, points, words, media = [], [], [], []
     for n in range(start, len(records)):
         rec = records[n]
         step, t = rec.get("step"), rec.get("_t")
         lines.append((run_id, stream, n, step if store.is_number(step) else None, t if store.is_number(t) else None))
-        flat = store.flatten({k: v for k, v in rec.items() if k not in ("step", "_t", "all")}) if stream == 0 else _system_names(rec)
+        rich = {k: v for k, v in rec.items() if isinstance(v, dict) and v.get("_type") in MEDIA} if stream == 0 else {}
+        for key, v in rich.items():
+            kind = MEDIA[v["_type"]]
+            k = keys.setdefault(key, {"kind": kind, "n": 0, "last": None, "lo": None, "hi": None, "mono": 0})
+            k["kind"], k["n"] = kind, k["n"] + 1
+            media.append((run_id, key, n, json.dumps(v, ensure_ascii=False)))
+        flat = store.flatten({k: v for k, v in rec.items() if k not in ("step", "_t", "all") and k not in rich}) if stream == 0 else _system_names(rec)
         for key, v in flat.items():
             if key.startswith("_"):
                 continue
@@ -129,10 +139,11 @@ def _ingest(con, run_id, records, start, stream, keys):
     con.executemany("INSERT OR REPLACE INTO line VALUES(?,?,?,?,?)", lines)
     con.executemany("INSERT OR REPLACE INTO point VALUES(?,?,?,?)", points)
     con.executemany("INSERT OR REPLACE INTO word VALUES(?,?,?,?)", words)
+    con.executemany("INSERT OR REPLACE INTO media VALUES(?,?,?,?)", media)
 
 
 def _forget(con, run_id):
-    for table, col in (("runs", "id"), ("keys", "run"), ("line", "run"), ("point", "run"), ("word", "run")):
+    for table, col in (("runs", "id"), ("keys", "run"), ("line", "run"), ("point", "run"), ("word", "run"), ("media", "run")):
         con.execute("DELETE FROM %s WHERE %s=?" % (table, col), (run_id,))
 
 
@@ -299,6 +310,38 @@ def timeline(run_id, key, only_changes=True, limit=3000):
         out.append({"step": steps.get(n), "cells": rows[n]})
     short = lambda name: name[len(key) + 1:] if name.startswith(key + ".") else name.split(".")[-1]
     return {"columns": [{"key": c[0], "name": short(c[0]), "kind": c[1]} for c in cols], "rows": out[:limit], "shown": len(out), "total": len(rows)}
+
+
+def media_of(run_id, key, limit=120):
+    """A histogram, picture or table a run logged, at each step it logged it: {"kind", "items": [...]}.
+
+    histogram  {"step", "bins", "values"}: len(bins) is len(values) + 1
+    image      {"step", "files": [{"path", "caption"}]}
+    table      {"step", "columns", "rows"}, read from the file the log points at
+    """
+    with _lock:
+        con = db()
+        kind = (con.execute("SELECT kind FROM keys WHERE run=? AND key=?", (run_id, key)).fetchone() or [None])[0]
+        rows = con.execute("SELECT l.step, m.v FROM media m JOIN line l ON l.run=m.run AND l.stream=0 AND l.n=m.n "
+                           "WHERE m.run=? AND m.key=? ORDER BY m.n", (run_id, key)).fetchall()
+    if len(rows) > limit:                                   # evenly thinned, always keeping the last
+        rows = [rows[int(i * (len(rows) - 1) / (limit - 1))] for i in range(limit)]
+    items = []
+    for step, text in rows:
+        v = json.loads(text)
+        if kind == "histogram":
+            items.append({"step": step, "bins": v.get("bins") or [], "values": v.get("values") or []})
+        elif kind == "image":
+            paths = v.get("filenames") or ([v["path"]] if v.get("path") else [])
+            captions = v.get("captions") or [v.get("caption")] * len(paths)
+            items.append({"step": step, "files": [{"path": p, "caption": c or ""} for p, c in zip(paths, list(captions) + [""] * len(paths))]})
+        elif kind == "table":
+            try:
+                t = store.read_json(store.media_file(run_id, v.get("path", "")), {}) or {}
+            except KeyError:
+                t = {}
+            items.append({"step": step, "columns": t.get("columns") or [], "rows": (t.get("data") or [])[:500], "missing": not t})
+    return {"kind": kind, "items": items}
 
 
 def search(query, per_field=40):

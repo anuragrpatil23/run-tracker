@@ -7,7 +7,8 @@
    start open. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { About, Drawn, FormulaForm, Icon, Panel, View } from "./Chart";
-import { useStored } from "./lib";
+import { ruleFor, useStored } from "./lib";
+import { MediaPanel } from "./Media";
 
 type Section = { id: string; title: string; about: string; keys: string[] };
 const SIZES = { s: { min: 250, height: 140 }, m: { min: 360, height: 200 }, l: { min: 560, height: 300 } };
@@ -25,8 +26,9 @@ function sectionOf(key: string): string {
 const shortName = (key: string, section: string) =>
   key.startsWith("splits:") ? key.slice(7) : section === "sys" ? key.slice(4) : section !== "main" && section !== "pinned" && key.startsWith(section) ? key.slice(section.length + 1) : key;
 
-export function ChartSections({ numbers, clocks, runs, view, sync }:
-  { numbers: string[]; clocks: string[]; runs: Drawn[]; view: View; sync: string }) {
+export function ChartSections({ numbers, clocks, runs, view, sync, media = [] }:
+  { numbers: string[]; clocks: string[]; runs: Drawn[]; view: View; sync: string; media?: { key: string; kind: string }[] }) {
+  const kindOf = useMemo(() => new Map(media.map(m => [m.key, m.kind])), [media]);
   const [pinned, setPinned] = useStored<string[]>("pinned", []);
   const [hidden, setHidden] = useStored<string[]>("hiddenPanels", []);
   const [open, setOpen] = useStored<Record<string, boolean>>("sectionsOpen", {});
@@ -39,7 +41,9 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
     // Rows seen and minutes are axes, not charts. The loss comes first, then other charts worked out by formula,
     // then the rest in the order the runs logged them: the chart most people look for should not need finding.
     const rank = (k: string) => (/(^|[_./])loss($|[_./])/i.test(k) ? 0 : view.formulas[k] ? 1 : 2);
-    const charts = numbers.filter(k => !clocks.includes(k) && !hidden.includes(k)).map((k, i) => ({ k, i })).sort((a, b) => rank(a.k) - rank(b.k) || a.i - b.i).map(e => e.k);
+    const plotted = numbers.filter(k => !clocks.includes(k) && !hidden.includes(k) && !ruleFor(view.defined ?? [], k).hidden)
+      .map((k, i) => ({ k, i })).sort((a, b) => rank(a.k) - rank(b.k) || a.i - b.i).map(e => e.k);
+    const charts = [...plotted, ...media.map(m => m.key).filter(k => !hidden.includes(k))];       // histograms, pictures and tables follow the charts
     const by = new Map<string, string[]>();
     for (const k of charts) { const s = sectionOf(k); by.set(s, [...(by.get(s) ?? []), k]); }
     const rest = [...by.keys()].filter(s => s !== "main" && s !== "sys").sort();
@@ -55,7 +59,7 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
     for (const s of rest) out.push({ id: s, title: s, about: `Everything the run logged under “${s}”`, keys: by.get(s)! });
     if (by.has("sys")) out.push({ id: "sys", title: "The machine", about: "GPU, memory and processor, against minutes since the run began", keys: by.get("sys")! });
     return out;
-  }, [numbers, clocks, hidden, pinned, view.formulas]);
+  }, [numbers, clocks, hidden, pinned, view.formulas, media, view.defined]);
 
   const q = find.trim().toLowerCase();
   const matching = (s: Section) => (q ? s.keys.filter(k => k.toLowerCase().includes(q)) : s.keys);
@@ -89,7 +93,7 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
   const total = sections.filter(s => s.id !== "pinned").reduce((n, s) => n + s.keys.length, 0);
 
   if (!runs.length) return <p className="muted">Choose runs to draw: click the dot beside a run's name.</p>;
-  if (!total) return <p className="muted">These runs have logged no numbers yet.</p>;
+  if (!total) return <p className="muted">These runs have logged nothing to draw yet.</p>;
   return (
     <div className="sections" ref={box}>
       <nav className="toc" aria-label="Contents">
@@ -133,6 +137,7 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
             {isOpen(s) && <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill,minmax(min(100%,${SIZES[size].min}px),1fr))` }}>
               {keys.map(k => {
                 const shared = { runs, view, height: SIZES[size].height, pinned: pinned.includes(k), onPin: () => pin(k) };
+                if (kindOf.has(k)) return <MediaPanel key={k} name={k} title={shortName(k, s.id)} kind={kindOf.get(k)!} onHide={() => setHidden([...hidden, k])} {...shared} height={SIZES[size].height + 40} />;
                 if (!k.startsWith("splits:")) return <Panel key={k} name={k} title={shortName(k, s.id)} sync={s.id === "sys" ? sync + "-sys" : sync} onHide={() => setHidden([...hidden, k])} {...shared} />;
                 // one chart for a number measured on several sets of data: the training one solid, the others dashed
                 const members = numbers.filter(n => SPLITS.includes(sectionOf(n)) && n.slice(sectionOf(n).length + 1) === k.slice(7) && !hidden.includes(n));

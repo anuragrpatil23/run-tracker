@@ -126,6 +126,16 @@ def output_of(path, limit=400000):
     return ""
 
 
+def media_file(run_id, rel):
+    """A picture or table a run logged, by its path as the log names it. Kept inside the run's own folder."""
+    root = run_path(run_id)
+    for base in (root / "files", root):                     # the W&B client keeps them under files/
+        f = (base / rel).resolve()
+        if root.resolve() in f.parents and f.is_file():
+            return f
+    raise KeyError(rel)
+
+
 def is_marker(name):
     """Whether a file of this name makes its folder a run folder."""
     return name in RUN_MARKERS or wandbfile.is_run_file(name)
@@ -276,7 +286,7 @@ def summary(run_id, path, now=None):
         "prediction": local.get("prediction", meta.get("prediction", "")),
         "synced": sync.get("time"), "job": sync.get("job"),
         "commit": (meta.get("git") or {}).get("commit"), "dirty": (meta.get("git") or {}).get("dirty"),
-        "about": meta.get("about") or {},
+        "about": meta.get("about") or {}, "metrics": meta.get("metrics") or [],
     }
 
 

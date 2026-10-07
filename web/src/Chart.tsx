@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { api, cssColour, enc, fmt, Run, Series, tick, useSeen } from "./lib";
+import { api, cssColour, enc, fmt, Metric, ruleFor, Run, Series, tick, useSeen } from "./lib";
 
 export type Line = { label: string; slot: number; x: number[]; y: number[]; lo?: number[]; hi?: number[]; members?: number; dashed?: boolean };
 type Range = [number, number] | null;
@@ -247,7 +247,7 @@ export type Drawn = { id: string; name: string; slot: number; group?: string };
 export type View = {
   x: string; xLabel: string; smooth: number; logs: Record<string, boolean>; setLog: (key: string, on: boolean) => void; theme: string; tickN: number;
   range?: Range; setRange?: (r: Range) => void; trim?: boolean; bundled?: boolean;
-  about: Record<string, string>; setAbout: (name: string, text: string) => void;
+  about: Record<string, string>; setAbout: (name: string, text: string) => void; defined?: Metric[];
   formulas: Record<string, { expr: string }>; saveFormula: (name: string, expr: string, about: string) => Promise<string | null>;
 };
 
@@ -373,7 +373,11 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
   const [editing, setEditing] = useState(false);
   const formula = view.formulas[name]?.expr;
   const ids = runs.map(r => r.id).join(",");
-  const x = name.startsWith("sys/") ? "_t" : view.x;
+  // A script can say what a metric is to be plotted against (define_metric). That holds while the reader has left the
+  // x axis on step; choosing another axis for the page overrides it.
+  const rule = also.length ? { name } : ruleFor(view.defined ?? [], name);
+  const own = !name.startsWith("sys/") && view.x === "step" && rule.step ? rule.step : null;
+  const x = name.startsWith("sys/") ? "_t" : own ?? view.x;
   useEffect(() => {
     if (!seen || !ids) return;
     let alive = true;
@@ -391,17 +395,19 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
     return groups.map(g => { const members = each.filter(l => (l.group ?? "") === g && l.x.length); return bundle(g, members[0]?.slot ?? 0, members); });
   }, [data, runs, name, x, view.bundled, also.map(a => a.key).join(","), first]);
   const logY = view.logs[name] ?? wantsLog(lines);
-  const xLabel = x === "_t" ? "minutes" : view.xLabel;
+  const xLabel = x === "_t" ? "minutes" : own ?? view.xLabel;
   // Beside the name: where the number stands now. One run: its latest value. Several: the span of their latest values.
-  const latest = lines.filter(l => l.y.length).map(l => l.y[l.y.length - 1]);
-  const stands = !latest.length ? "" : latest.length === 1 ? fmt(latest[0])
-    : Math.min(...latest) === Math.max(...latest) ? fmt(latest[0]) : `${fmt(Math.min(...latest))} to ${fmt(Math.max(...latest))}`;
+  // Where the script said which value counts (its lowest, its highest), that is the one shown.
+  const best = rule.summary?.includes("min") ? "lowest" : rule.summary?.includes("max") ? "highest" : "";
+  const latest = lines.filter(l => l.y.length).map(l => (best === "lowest" ? Math.min(...l.y) : best === "highest" ? Math.max(...l.y) : l.y[l.y.length - 1]));
+  const stands = !latest.length ? "" : (best ? best + " " : "") + (latest.length === 1 || Math.min(...latest) === Math.max(...latest) ? fmt(latest[0])
+    : `${fmt(Math.min(...latest))} to ${fmt(Math.max(...latest))}`);
   const close = useCallback(() => setBig(false), []);
   return (
     <figure className="chart" ref={ref} data-chart={chartId ?? name}>
       <figcaption>
         <span className="t" title={name}>{title ?? name}</span>
-        {stands && <span className="now" data-tip={latest.length === 1 ? "The latest value" : "The lowest and highest of the runs' latest values"}>{stands}</span>}
+        {stands && <span className="now" data-tip={best ? `The ${best} value each run reached: the script marked that as the one that counts` : latest.length === 1 ? "The latest value" : "The lowest and highest of the runs' latest values"}>{stands}</span>}
         <span className="tools">
           {formula && <button className="word" data-tip={`Worked out as ${formula}. Click to change it.`} aria-label={`the formula for ${name}`} onClick={() => setEditing(true)}>ƒ</button>}
           <button className="word" aria-pressed={logY} data-tip={logY ? "Log scale. Click for a plain scale." : "Plain scale. Click for a log scale."} onClick={() => view.setLog(name, !logY)}>log</button>
@@ -413,7 +419,7 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
       <About name={name} view={view} />
       {data
         ? <Chart lines={lines} xLabel={xLabel} logY={logY} smooth={view.smooth} syncKey={sync} height={height} theme={view.theme}
-            range={x === "_t" ? undefined : view.range} onRange={x === "_t" ? undefined : view.setRange} trim={view.trim} />
+            range={x === view.x ? view.range : undefined} onRange={x === view.x ? view.setRange : undefined} trim={view.trim} />
         : <div className="empty" style={{ height }} />}
       {editing && <FormulaForm view={view} edit={name} close={() => setEditing(false)} />}
       {big && <Inspector name={name} lines={lines} xLabel={xLabel} logY={logY} view={view} sync={sync} close={close} />}

@@ -25,7 +25,8 @@ import json, math, os, struct, threading
 
 BLOCK, HEADER = 32768, 7
 # Record: which field holds which kind of record
-HISTORY, CONFIG, STATS, OUTPUT_RAW, RUN, EXIT, ENVIRONMENT = 2, 5, 7, 13, 17, 18, 26
+HISTORY, CONFIG, STATS, METRIC, OUTPUT_RAW, RUN, EXIT, ENVIRONMENT = 2, 5, 7, 12, 13, 17, 18, 26
+SUMMARIES = {1: "min", 2: "max", 3: "mean", 4: "best", 5: "last", 8: "first"}
 
 _lock = threading.Lock()
 _cache = {}
@@ -211,6 +212,19 @@ def _apply(run, data):
                 m["command"] = " ".join([m.get("executable") or "python", program] + args)
             if gpus:
                 m["gpus"] = gpus
+        elif kind == METRIC:
+            # What the script said about a metric with define_metric: what to plot it against, which of its values is
+            # the one that counts, whether to keep it out of sight. `name` may hold a * to cover several metrics.
+            m = {}
+            for num, v in _fields(body):
+                if num in (1, 2): m["name"] = _text(v)
+                elif num == 4: m["step"] = _text(v)
+                elif num == 6: m["hidden"] = bool(dict(_fields(v)).get(2))
+                elif num == 7: m["summary"] = [SUMMARIES[n] for n, on in _fields(v) if on and n in SUMMARIES]
+                elif num == 8: m["goal"] = {1: "minimize", 2: "maximize"}.get(v)
+            if m.get("name"):
+                run["meta"].setdefault("metrics", [])
+                run["meta"]["metrics"] = [x for x in run["meta"]["metrics"] if x["name"] != m["name"]] + [m]
         elif kind == OUTPUT_RAW:
             for num, v in _fields(body):
                 if num == 3:

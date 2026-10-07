@@ -105,6 +105,15 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/v2/search":
                 index.refresh()
                 self.send({"query": q.get("q", ""), "results": index.search(q.get("q", ""))})
+            elif url.path == "/api/v2/media":
+                index.refresh(q["id"])
+                self.send(index.media_of(q["id"], q["key"]))
+            elif url.path == "/api/v2/file":
+                f = store.media_file(q["id"], q["path"])
+                kind = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+                if not kind.startswith("image/") or kind == "image/svg+xml":       # pictures only; nothing a browser would run
+                    return self.send({"error": "not a picture"}, code=415)
+                self.send(f.read_bytes(), kind)
             elif url.path == "/api/v2/output":
                 self.send({"text": store.output_of(store.run_path(q["id"]))})
             elif url.path == "/api/search":

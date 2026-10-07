@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { asDrawn, Modal, View } from "./Chart";
 import { ChartSections } from "./Sections";
-import { api, differing, dur, enc, fmt, going, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
+import { api, differing, dur, enc, fmt, going, isAxis, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
 
 /* The state of a run as a mark and a word. The marks are not dots: on this page a coloured dot is a run. */
 const MARK: Record<string, string> = { finished: "✓", failed: "✕", died: "✕", stalled: "!", pending: "…", ended: "–", running: "" };
@@ -59,21 +59,23 @@ export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFor
   const ids = drawnRuns.map(r => r.id).join(",");
   const grown = drawnRuns.reduce((n, r) => n + r.lines, 0);
   const { data: keyMap } = usePoll<Record<string, KeyInfo[]>>(() => (ids ? api(`/api/v2/keys?runs=${enc(ids)}`) : Promise.resolve({})), 0, [ids, grown, JSON.stringify(formulas)]);
+  const defined = useMemo(() => [...new Map(runs.flatMap(r => r.metrics ?? []).map(m => [JSON.stringify(m), m])).values()], [runs]);
   const keys = useMemo(() => {
     const all = new Map<string, { clock: boolean; kind: string }>();
     for (const list of Object.values(keyMap ?? {})) for (const k of list) {
       const old = all.get(k.key);
-      all.set(k.key, { kind: k.kind, clock: (old ? old.clock : true) && k.mono && k.kind === "number" && (k.hi ?? 0) > (k.lo ?? 0) });
+      all.set(k.key, { kind: k.kind, clock: (old ? old.clock : true) && isAxis(k, defined) });
     }
     return all;
-  }, [keyMap]);
+  }, [keyMap, defined]);
   const numbers = [...keys].filter(([, v]) => v.kind === "number").map(([k]) => k);
-  const clocks = numbers.filter(k => keys.get(k)!.clock && !k.includes(".") && !k.startsWith("sys/"));
+  const media = useMemo(() => [...keys].filter(([, v]) => ["histogram", "image", "table"].includes(v.kind)).map(([key, v]) => ({ key, kind: v.kind })), [keys]);
+  const clocks = numbers.filter(k => keys.get(k)!.clock);
   const xChoices: [string, string][] = [["step", "step"], ...clocks.map(k => [k, k] as [string, string]), ["_t", "time (minutes)"]];
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
   const view: View = {
     x: xNow, xLabel: xChoices.find(c => c[0] === xNow)![1].replace("time (minutes)", "minutes"), smooth, logs, theme, tickN: grown,
-    range, setRange, trim, bundled: asGroups, about, setAbout, formulas, saveFormula,
+    range, setRange, trim, bundled: asGroups, about, setAbout, formulas, saveFormula, defined,
     setLog: (key, on) => setLogs(old => ({ ...old, [key]: on })),
   };
   const plain = numbers.filter(k => !k.startsWith("sys/") && !k.includes(".") && !clocks.includes(k));
@@ -176,7 +178,7 @@ export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFor
           </>}
         </div>
 
-        {tab === "charts" && <ChartSections numbers={numbers} clocks={clocks} runs={drawn} view={view} sync="ws" />}
+        {tab === "charts" && <ChartSections numbers={numbers} clocks={clocks} runs={drawn} view={view} sync="ws" media={media} />}
 
         {tab === "table" && <RunTable runs={shown} diff={diff} metrics={plain} slotOf={slotOf} isOn={isOn} toggle={toggle} />}
         {tab === "settings" && <SettingsDiff runs={drawnRuns} slotOf={slotOf} />}

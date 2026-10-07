@@ -6,10 +6,29 @@ export type Run = {
   state: string; why: string; step: number | null; total: number | null; lines: number;
   started: number | null; ended: number | null; seconds: number | null;
   settings: Record<string, unknown>; latest: Record<string, number>;
-  tags: string[]; note: string; prediction: string; synced: number | null; commit: string | null;
+  tags: string[]; note: string; prediction: string; synced: number | null; commit: string | null; metrics: Metric[];
   job: { id: string; state: string; raw: string; exit_code: string | null } | null;
 };
-export type KeyInfo = { key: string; kind: "number" | "words"; n: number; last: number | null; lo: number | null; hi: number | null; mono: boolean; formula?: string };
+export type Metric = { name: string; step?: string; summary?: string[]; hidden?: boolean };
+/* What a script said about a metric with define_metric. A name may hold a * to cover several; a later, more exact
+   entry adds to an earlier, wider one. */
+export function ruleFor(defined: Metric[], name: string): Metric {
+  const out: Metric = { name };
+  for (const m of defined) {
+    const hit = m.name.includes("*") ? new RegExp("^" + m.name.split("*").map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$").test(name) : m.name === name;
+    if (hit) { if (m.step) out.step = m.step; if (m.summary?.length) out.summary = m.summary; if (m.hidden) out.hidden = true; }
+  }
+  return out;
+}
+/* Whether a logged number is something to plot the others against, not a result: a count of steps, examples or time.
+   It has to only ever go up, and either the script named it as a step metric or it has one of the usual names. Going
+   up alone is not enough: an accuracy that improved at every line also only went up, and it is a result. */
+const COUNTERS = /(^|[/_.])(epochs?|steps?|global_step|iter(ation)?s?|rows|samples|examples|tokens|batch(es)?|minutes|seconds|hours|time)$/i;
+export function isAxis(k: { key: string; kind: string; mono: boolean; lo: number | null; hi: number | null }, defined: Metric[]): boolean {
+  return k.kind === "number" && k.mono && (k.hi ?? 0) > (k.lo ?? 0) && !k.key.startsWith("sys/")
+    && (COUNTERS.test(k.key) || defined.some(m => m.step === k.key));
+}
+export type KeyInfo = { key: string; kind: "number" | "words" | "histogram" | "image" | "table"; n: number; last: number | null; lo: number | null; hi: number | null; mono: boolean; formula?: string };
 export type Series = { x: number[]; y: number[]; n: number };
 export type SyncState = { busy: boolean; last: number | null; error: string | null; lines: string[]; watch: number | null };
 

@@ -38,7 +38,7 @@ rt sync
 The run file is read directly, with the standard library alone (`runtracker/wandbfile.py`); the
 `wandb` package is not needed on the laptop. Settings, every logged step (nested values and lists
 of words included), system statistics, the run's name, project, tags and notes, the command and
-how the run ended all come across.
+how the run ended all come across, as do histograms, pictures, tables and `define_metric`.
 
 Two things to know:
 
@@ -133,6 +133,12 @@ rt view --watch           # the same, syncing in the background while a run is g
 - **Charts from a formula.** For a number the script did not log but that follows from ones it did:
   give it a name and a formula, such as `loss = rebuild_error + lam * total_firing`, using logged
   numbers, hyperparameters, `step` and `seconds`. It appears for every run that has those names.
+- **Histograms, pictures and tables.** What a W&B run logged with `wandb.Histogram`, `wandb.Image`
+  and `wandb.Table` sits in the sections beside the charts, each with a slider through the steps it
+  was logged at. A histogram is drawn as a strip, one column per step, darker where more values fell.
+- **What the script said about its metrics.** `define_metric` is honoured: a metric given a step
+  metric is drawn against it, one marked `summary="min"` or `"max"` shows its lowest or highest
+  beside its name, and a hidden one is left out.
 - **One run.** Its charts, the machine (GPU, memory) against time, settings, the command, the
   commit linked to GitHub, what the script printed, the files it saved, and a box for what you
   expected before the run beside what happened after.
