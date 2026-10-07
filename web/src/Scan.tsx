@@ -141,7 +141,17 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
   }, [project]);
 
   const usable = (s: Snapshot) => s.available !== false && (s.state ?? "ready") !== "missing";
-  const listSnapshots = useCallback(async () => { const s = await ask("snapshots"); setSnapshots(s.snapshots); setGlob(s.files ?? ""); return s; }, [ask]);
+  // A scanner lists the weights of every run it can see. Only those of this project's runs are offered here, with
+  // any that belong to no run at all (a published network to compare with).
+  const mine = useRef(new Set<string>());
+  mine.current = new Set(runs.map(r => r.id));
+  const listSnapshots = useCallback(async () => {
+    const s = await ask("snapshots");
+    s.snapshots = (s.snapshots as Snapshot[]).filter(x => x.run == null || mine.current.has(x.run));
+    if (!s.snapshots.some((x: Snapshot) => x.id === s.default)) s.default = [...s.snapshots].filter((x: Snapshot) => x.run != null).sort((x: Snapshot, y: Snapshot) => (y.step ?? 0) - (x.step ?? 0))[0]?.id ?? s.snapshots[0]?.id;   // the furthest-trained
+    setSnapshots(s.snapshots); setGlob(s.files ?? "");
+    return s;
+  }, [ask]);
   // Saved weights that are still where the run wrote them: the scanner cannot see those, but the tracker knows each
   // run's files, and which match the scanner's pattern. They are offered for fetching.
   const runIds = runs.map(r => r.id).join(",");
