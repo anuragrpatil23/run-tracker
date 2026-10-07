@@ -9,6 +9,9 @@ between the three parts.
 - `tracker.py` — the writer. One file, standard library only, must run on Python 3.8+ (the cluster).
   It must never be able to stop a training run: every write is wrapped and only warns.
 - `runtracker/store.py` — reads copied run folders; works out a run's state.
+- `runtracker/wandbfile.py` — reads the run file the W&B client writes offline, standard library only.
+  A run folder is either the tracker's own files or one `run-<id>.wandb`; `store.log_of`, `system_of`,
+  `meta_of`, `config_of` and `status_of` are the only places that know which. Go through them.
 - `runtracker/sync.py` — copies from sources over ssh (batch mode, never prompts) or from local folders.
 - `runtracker/server.py` — the viewer's server, 127.0.0.1 only. `runtracker/export.py` — self-contained pages.
 - `runtracker/static/` — the viewer. Plain JS, no build step. `charts.js` is shared with exported pages,

@@ -181,8 +181,8 @@
           job ? [h("dt", null, "job"), h("dd", null, `${job.id} · the scheduler says ${job.state} (${job.raw})` + (job.exit_code ? `, exit code ${job.exit_code}` : ""))] : null,
           h("dt", null, "code"), h("dd", null, git.commit
             ? [d.commit_url ? h("a", {href: d.commit_url, target: "_blank", rel: "noopener", class: "mono"}, git.commit.slice(0, 10)) : h("span", {class: "mono"}, git.commit.slice(0, 10)),
-               git.branch ? ` on ${git.branch}` : "", git.dirty ? h("span", {class: "note-warn", style: "margin-left:10px"}, `with uncommitted changes to ${(git.changed_files || []).join(", ") || "tracked files"}`) : " · clean"]
-            : h("span", {class: "muted"}, "no commit recorded (the run was not written with the tracker, or the code was not in git)")),
+               git.branch ? ` on ${git.branch}` : "", git.dirty ? h("span", {class: "note-warn", style: "margin-left:10px"}, `with uncommitted changes to ${(git.changed_files || []).join(", ") || "tracked files"}`) : git.dirty === false ? " · clean" : ""]
+            : h("span", {class: "muted"}, "no commit recorded (the code was not in a git checkout, or the run was written before commits were recorded)")),
           d.meta.command ? [h("dt", null, "command"), h("dd", null, h("pre", null, d.meta.command))] : null,
           (d.meta.restarts || []).length ? [h("dt", null, "restarts"), h("dd", null, d.meta.restarts.map(r => when(r.time) + (r.job_id ? ` (job ${r.job_id})` : "")).join(" · "))] : null));
     }

@@ -17,6 +17,39 @@ Three parts, each usable without the next:
 
 Nothing needs installing beyond Python 3.8 on the cluster and Python 3.9 on the laptop.
 
+## Runs logged with the Weights & Biases client
+
+A script that already calls `wandb.log` needs no change beyond running offline:
+
+```sh
+export WANDB_MODE=offline        # nothing is sent anywhere; no account or key is needed
+python train.py                  # writes ./wandb/offline-run-<date>_<time>-<id>/run-<id>.wandb
+```
+
+Point a source at the `wandb` folder and the runs sync and show beside the others:
+
+```sh
+rt source add myproject --ssh minerva --root /path/to/project/wandb --scheduler lsf
+rt sync
+```
+
+The run file is read directly, with the standard library alone (`runtracker/wandbfile.py`); the
+`wandb` package is not needed on the laptop. Settings, every logged step (nested values and lists
+of words included), system statistics, the run's name, project, tags and notes, the command and
+how the run ended all come across.
+
+Two things to know:
+
+- **A run still going is behind itself on disk.** The client writes its file a 32 KB block at a
+  time, so steps reach the disk in batches. A run that logs a line every few seconds may be a few
+  minutes behind; one that logs rarely, longer. The tracker's own writer puts each line on disk as
+  it is logged, and is the better choice where watching live matters.
+- **The file is the client's internal format.** It is read here from the record definitions in
+  the client's source (MIT licence), checked against a file written by client 0.30.0 that is kept
+  in `tests/fixtures`. Pin the client version on the cluster, and run the tests after changing it.
+
+This project is not affiliated with or endorsed by Weights & Biases.
+
 ## The writer
 
 Copy `tracker.py` next to the training script.

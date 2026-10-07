@@ -51,13 +51,13 @@ def build(spec):
         path = store.run_path(run_id)
         s = store.summary(run_id, path)
         records = []
-        for rec in store.read_jsonl(path / "log.jsonl"):
+        for rec in store.log_of(path):
             slim = _pick(rec, keep)
             for (r, key) in whole:
                 if r == run_id and key in rec:
                     slim[key] = rec[key]
             records.append(slim)
-        meta = store.read_json(path / "meta.json", {}) or {}
+        meta = store.meta_of(path)
         runs.append({"id": run_id, "name": s["name"], "state": s["state"], "step": s["step"], "settings": s["settings"],
                      "prediction": s["prediction"], "outcome": (store.read_json(path / "_local.json", {}) or {}).get("outcome", ""),
                      "commit": s["commit"], "commit_url": store.commit_url(meta.get("git")), "records": records})

@@ -78,11 +78,11 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/run":
                 self.send(store.detail(q["id"]))
             elif url.path == "/api/log":
-                records = store.read_jsonl(store.run_path(q["id"]) / "log.jsonl")
+                records = store.log_of(store.run_path(q["id"]))
                 since = int(q.get("since", 0))
                 self.send({"records": records[since:], "total": len(records)})
             elif url.path == "/api/system":
-                self.send({"records": store.read_jsonl(store.run_path(q["id"]) / "system.jsonl")})
+                self.send({"records": store.system_of(store.run_path(q["id"]))})
             elif url.path == "/api/search":
                 self.send({"query": q.get("q", ""), "results": store.search(q.get("q", ""))})
             elif url.path == "/api/sync":

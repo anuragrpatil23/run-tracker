@@ -160,5 +160,60 @@ class ReaderAndSync(unittest.TestCase):
         self.assertEqual(self.store.settings({"args": {"lam": 0.2}, "device": "cuda"}), {"lam": 0.2, "device": "cuda"})
 
 
+class WandbFile(unittest.TestCase):
+    """Reading the run file the W&B client writes offline. The fixture was written by client 0.30.0."""
+    FIXTURE = ROOT / "tests" / "fixtures" / "run-offline-0.30.0.wandb"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        os.environ["RUN_TRACKER_DATA"] = str(Path(self.tmp.name) / "data")
+        from runtracker import store, sync, wandbfile
+        self.store, self.sync, self.wb = store, sync, wandbfile
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_whole_run_comes_back(self):
+        r = self.wb.load(self.FIXTURE)
+        self.assertEqual(len(r["log"]), 40)
+        self.assertEqual([l["step"] for l in r["log"]][:3], [0, 10, 20])
+        self.assertEqual(r["log"][-1]["sky"]["responds_to"], [" sky", " skies", " heavens"])
+        self.assertIn("_t", r["log"][0]); self.assertNotIn("_runtime", r["log"][0])
+        self.assertEqual(r["config"], {"lam": 0.2, "features": 8192, "nested": {"lr": 0.0002}})
+        self.assertEqual((r["meta"]["name"], r["meta"]["wandb"]["project"], r["meta"]["host"]), ("trial_lam0.2", "sae-trial", "example-host"))
+        self.assertEqual(r["status"]["state"], "finished")
+        self.assertGreaterEqual(len(r["system"]), 1)
+
+    def test_a_file_copied_part_way_reads_up_to_its_last_whole_record_and_then_continues(self):
+        whole = self.FIXTURE.read_bytes()
+        part = Path(self.tmp.name) / "run-part.wandb"
+        seen = []
+        for cut in (5, 7, 3000, 9999, 20001, len(whole)):       # including cuts in the middle of a record
+            part.write_bytes(whole[:cut])
+            try:
+                r = self.wb.load(part)
+            except ValueError:
+                seen.append(-1); continue                        # five bytes are not yet a file of this kind
+            seen.append(len(r["log"]))
+            self.assertEqual(r["status"]["state"], "finished" if cut == len(whole) else "running")
+        self.assertEqual(seen[-1], 40); self.assertEqual(seen, sorted(seen)); self.assertLess(seen[3], 40)
+        self.assertEqual(r["log"], self.wb.load(self.FIXTURE)["log"])    # read in pieces, it is the same run
+
+    def test_a_folder_of_offline_runs_syncs_and_shows_like_any_other(self):
+        far = Path(self.tmp.name) / "far" / "wandb" / "offline-run-20261006_212449-eyv8dqyf"
+        (far / "logs").mkdir(parents=True); (far / "files").mkdir()
+        (far / "run-eyv8dqyf.wandb").write_bytes(self.FIXTURE.read_bytes())
+        (far / "logs" / "debug.log").write_text("noise"); (far / "files" / "requirements.txt").write_text("wandb")
+        self.store.save_config({"sources": {"wb": {"root": str(far.parent)}}})
+        self.sync.sync_all(say=lambda *_: None)
+        run_id = "wb/offline-run-20261006_212449-eyv8dqyf"
+        here = self.store.runs_dir() / run_id
+        self.assertTrue((here / "run-eyv8dqyf.wandb").is_file()); self.assertFalse((here / "logs").exists())
+        s = self.store.summary(run_id, here)
+        self.assertEqual((s["name"], s["state"], s["step"], s["format"], s["project"]), ("trial_lam0.2", "finished", 390, "wandb", "sae-trial"))
+        self.assertEqual(s["settings"], {"lam": 0.2, "features": 8192, "nested.lr": 0.0002})
+        self.assertEqual(self.store.search("heavens")[0]["fields"][0]["field"], "sky.responds_to")
+
+
 if __name__ == "__main__":
     unittest.main()

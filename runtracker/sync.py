@@ -8,7 +8,7 @@ and stops.
 One sync of one source is two round trips: one to list every file with its size (and ask the
 scheduler about jobs), one to fetch the missing bytes of everything that changed.
 
-  log files (.jsonl, .out, .err, .log)   only the bytes past what is already here
+  log files (.jsonl, .wandb, .out, ...)  only the bytes past what is already here
   small files                            whole, when their size or time has changed
   large files (weights)                  left where they are, and listed; `rt fetch` brings one
 """
@@ -121,7 +121,7 @@ def sources(only=None):
 
 def run_folders(files):
     """The run folders in a listing: the shallowest folders that hold one of the files a run always has."""
-    dirs = sorted({os.path.dirname(f) for f in files if os.path.basename(f) in store.RUN_MARKERS}, key=len)
+    dirs = sorted({os.path.dirname(f) for f in files if store.is_marker(os.path.basename(f))}, key=len)
     keep = []
     for d in dirs:
         if not any(k == "" or d == k or d.startswith(k + "/") for k in keep):
@@ -159,13 +159,16 @@ def sync_source(source, say=print):
         old = store.read_json(local / "_sync.json", {}) or {}
         mine = {f[len(prefix):]: v for f, v in files.items() if f.startswith(prefix)}
         big, todo = [], []
+        wandb_run = any(store.is_marker(n) and n.endswith(".wandb") for n in mine)
         for rel, (size, mtime) in sorted(mine.items()):
             base = os.path.basename(rel)
             if base.startswith("_") or ".tmp" in base:
                 continue
+            if wandb_run and (rel.startswith(("logs/", "tmp/")) or rel.endswith(".syncstate")):
+                continue                                    # the W&B client's own debug logs and scratch files
             target = local / rel
             have = target.stat().st_size if target.is_file() else None
-            if rel.endswith(".jsonl") or (rel.endswith(APPEND) and size <= 50 * SMALL):
+            if rel.endswith((".jsonl", ".wandb")) or (rel.endswith(APPEND) and size <= 50 * SMALL):
                 if have is None or have > size:
                     todo.append((rel, 0, size, "whole"))
                 elif have < size:
@@ -206,7 +209,7 @@ def sync_source(source, say=print):
         for rel, (size, mtime) in mine.items():
             if rel not in failed:
                 seen[rel] = [size, mtime]
-        meta = store.read_json(local / "meta.json", {})
+        meta = store.meta_of(local)
         job = job_for(run_rel, source, meta, jobs, old.get("job"), now) if source.scheduler else None
         store.write_json(local / "_sync.json", {
             "source": source.name, "host": source.ssh or "this machine", "remote_path": source.root + ("/" + run_rel if run_rel else ""),
@@ -224,14 +227,22 @@ def sync_all(only=None, say=print):
     srcs = sources(only)
     if not srcs:
         raise SyncError("no sources yet. Add one with: rt source add NAME --root /path/to/runs [--ssh HOST] [--scheduler lsf]")
+    failed = []
     for source in srcs:
         say("%s (%s)" % (source.name, (source.ssh + ":" if source.ssh else "") + source.root))
-        ids = sync_source(source, say)
+        try:
+            ids = sync_source(source, say)
+        except SyncError as e:                              # one source out of reach does not hold up the others
+            failed.append(str(e)); say("  " + str(e))
+            ids = [i for i, _ in store.find_runs() if i.startswith(source.name + "/")]
+        else:
+            say("  %d runs" % len(ids))
         for run_id in ids:
             s = store.summary(run_id, store.runs_dir() / run_id)
             if s["state"] in ("running", "pending", "stalled"):
                 going += 1
-        say("  %d runs" % len(ids))
+    if failed:
+        raise SyncError("\n".join(failed))
     return going
 
 

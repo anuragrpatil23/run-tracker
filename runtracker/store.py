@@ -11,6 +11,8 @@ Two files in each copied folder are the laptop's own and are never taken from th
 import json, os, threading, time
 from pathlib import Path
 
+from . import wandbfile
+
 RUN_MARKERS = ("log.jsonl", "status.json", "meta.json")
 _lock = threading.Lock()
 _logs = {}          # path -> {"offset": bytes read, "records": [...], "inode": ...}
@@ -76,11 +78,43 @@ def read_jsonl(path):
                 try:
                     rec = json.loads(line)
                     if isinstance(rec, dict):
-                        c["records"].append(rec)
+                        c["records"].append(wandbfile.clean(rec))    # a bare NaN some writers emit becomes the string "NaN"
                 except Exception:
                     pass                                    # a damaged line is skipped, not fatal
             c["offset"] += end
         return c["records"]
+
+
+# A run folder is in one of two forms: the tracker's own files, or the single run-<id>.wandb file the
+# Weights & Biases client writes offline. These five are the only places that know which.
+def log_of(path):
+    w = wandbfile.find(path)
+    return wandbfile.load(w)["log"] if w else read_jsonl(Path(path) / "log.jsonl")
+
+
+def system_of(path):
+    w = wandbfile.find(path)
+    return wandbfile.load(w)["system"] if w else read_jsonl(Path(path) / "system.jsonl")
+
+
+def meta_of(path):
+    w = wandbfile.find(path)
+    return wandbfile.load(w)["meta"] if w else (read_json(Path(path) / "meta.json", {}) or {})
+
+
+def config_of(path):
+    w = wandbfile.find(path)
+    return wandbfile.load(w)["config"] if w else (read_json(Path(path) / "config.json", {}) or {})
+
+
+def status_of(path):
+    w = wandbfile.find(path)
+    return wandbfile.load(w)["status"] if w else read_json(Path(path) / "status.json")
+
+
+def is_marker(name):
+    """Whether a file of this name makes its folder a run folder."""
+    return name in RUN_MARKERS or wandbfile.is_run_file(name)
 
 
 def flatten(obj, prefix=""):
@@ -119,7 +153,7 @@ def find_runs():
     if not root.is_dir():
         return found
     for dirpath, dirnames, filenames in os.walk(root):
-        if any(m in filenames for m in RUN_MARKERS):
+        if any(is_marker(n) for n in filenames):
             found.append((str(Path(dirpath).relative_to(root)), Path(dirpath)))
             dirnames[:] = []                                # a run folder holds no further runs
     return sorted(found)
@@ -161,7 +195,7 @@ def state_of(status, sync, log, now=None):
             if job == "running":
                 return "stalled", "no heartbeat for %s while the job is still listed as running" % ago(beat_age)
             return "died", "no heartbeat for %s" % ago(beat_age)
-        if last_t and usual_gap and there_now - last_t > max(180.0, 10.0 * usual_gap):
+        if last_t and usual_gap and there_now - last_t > max(180.0, 10.0 * usual_gap, status.get("lag") or 0):
             return "stalled", "heartbeat is fresh but nothing has been logged for %s" % ago(there_now - last_t)
         if job == "pending":
             return "pending", "waiting in the queue"
@@ -193,11 +227,11 @@ def ago(seconds):
 def summary(run_id, path, now=None):
     """The one-row view of a run, for the list."""
     now = now or time.time()
-    meta = read_json(path / "meta.json", {}) or {}
-    status = read_json(path / "status.json")
+    meta = meta_of(path)
+    status = status_of(path)
     sync = read_json(path / "_sync.json", {}) or {}
     local = read_json(path / "_local.json", {}) or {}
-    log = read_jsonl(path / "log.jsonl")
+    log = log_of(path)
     state, why = state_of(status, sync, log, now)
     last = log[-1] if log else {}
     first = log[0] if log else {}
@@ -212,14 +246,18 @@ def summary(run_id, path, now=None):
     else:
         seconds = None
     source, _, name = run_id.partition("/")
+    wb = meta.get("wandb") or {}
+    if wb:
+        name = meta.get("name") or name                     # the name given to wandb.init, not offline-run-<date>-<id>
     return {
-        "id": run_id, "name": name or run_id, "source": source,
+        "id": run_id, "name": name or run_id, "source": source, "format": meta.get("format") if wb else "tracker",
+        "project": wb.get("project"), "group": wb.get("group"),
         "state": state, "why": why,
         "step": last.get("step", (status or {}).get("step")), "total": (status or {}).get("total"),
         "lines": len(log), "started": started, "ended": ended, "seconds": seconds,
-        "settings": settings(read_json(path / "config.json", {})),
+        "settings": settings(config_of(path)),
         "latest": {k: v for k, v in flatten(last).items() if is_number(v) and not k.startswith("_")},
-        "tags": local.get("tags", []), "note": local.get("note", ""),
+        "tags": local.get("tags", wb.get("tags", [])), "note": local.get("note", wb.get("notes", "")),
         "prediction": local.get("prediction", meta.get("prediction", "")),
         "synced": sync.get("time"), "job": sync.get("job"),
         "commit": (meta.get("git") or {}).get("commit"), "dirty": (meta.get("git") or {}).get("dirty"),
@@ -255,7 +293,7 @@ def detail(run_id):
     """Everything about one run except the log lines themselves."""
     path = run_path(run_id)
     out = summary(run_id, path)
-    meta = read_json(path / "meta.json", {}) or {}
+    meta = meta_of(path)
     sync = read_json(path / "_sync.json", {}) or {}
     local = read_json(path / "_local.json", {}) or {}
     artifacts = read_jsonl(path / "artifacts.jsonl")
@@ -273,7 +311,7 @@ def detail(run_id):
         notes = (path / "notes.md").read_text(encoding="utf-8")
     except Exception:
         notes = ""
-    out.update({"meta": meta, "status": read_json(path / "status.json"), "config": read_json(path / "config.json", {}),
+    out.update({"meta": meta, "status": status_of(path), "config": config_of(path),
                 "sync": {k: v for k, v in sync.items() if k != "files"}, "local": local, "files": files, "notes": notes,
                 "commit_url": commit_url(meta.get("git")), "folder": str(path)})
     return out
@@ -308,7 +346,7 @@ def search(query, limit_per_field=200):
         return results
     for run_id, path in find_runs():
         fields = {}
-        for rec in read_jsonl(path / "log.jsonl"):
+        for rec in log_of(path):
             for key, v in flatten(rec).items():
                 if isinstance(v, str):
                     words = [v]
