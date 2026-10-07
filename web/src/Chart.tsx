@@ -357,7 +357,7 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
     : Math.min(...latest) === Math.max(...latest) ? fmt(latest[0]) : `${fmt(Math.min(...latest))} to ${fmt(Math.max(...latest))}`;
   const close = useCallback(() => setBig(false), []);
   return (
-    <figure className="chart" ref={ref}>
+    <figure className="chart" ref={ref} data-chart={name}>
       <figcaption>
         <span className="t" title={name}>{title ?? name}</span>
         {stands && <span className="now" data-tip={latest.length === 1 ? "The latest value" : "The lowest and highest of the runs' latest values"}>{stands}</span>}

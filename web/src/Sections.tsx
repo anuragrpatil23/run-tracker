@@ -2,9 +2,10 @@
 
    A number's section is the part of its name before the first "/" or "." ("train/loss" and "sky.fired" go under
    "train" and "sky"); names with neither go under Main; samples of the machine go last. Any chart can be pinned, which
-   puts it in a section of its own at the top. A bar that stays in view lists the sections: click one to open it and
-   go there. Only Pinned and Main start open. */
-import { useMemo, useRef, useState } from "react";
+   puts it in a section of its own at the top. Down the left is a table of contents that stays in view: the sections,
+   and under each open one its charts. Click an entry to go there; the one being read is marked. Only Pinned and Main
+   start open. */
+import { useEffect, useMemo, useRef, useState } from "react";
 import { About, Drawn, Icon, Panel, View } from "./Chart";
 import { useStored } from "./lib";
 
@@ -47,11 +48,29 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
   const firstId = sections[0]?.id;
   const isOpen = (s: Section) => (q ? matching(s).length > 0 : open[s.id] ?? (s.id === "pinned" || s.id === "main" || (s.id === firstId && sections.length === 1)));
   const set = (id: string, on: boolean) => setOpen(old => ({ ...old, [id]: on }));
-  const goTo = (s: Section) => {
-    const was = isOpen(s);
-    set(s.id, !was);
-    if (!was) setTimeout(() => box.current?.querySelector(`[data-section="${CSS.escape(s.id)}"]`)?.scrollIntoView({ block: "start" }), 30);
+  const [reading, setReading] = useState("");
+  const goTo = (s: Section, chart?: string) => {
+    set(s.id, true);
+    setTimeout(() => {
+      const sec = box.current?.querySelector(`[data-section="${CSS.escape(s.id)}"]`);
+      const el = chart ? sec?.querySelector(`[data-chart="${CSS.escape(chart)}"]`) : sec;
+      el?.scrollIntoView({ block: chart ? "center" : "start" });
+      if (chart && el) { el.classList.add("found"); setTimeout(() => el.classList.remove("found"), 1400); }
+    }, 40);
   };
+  // Which section is being read: the last one whose heading has passed the top of the window.
+  useEffect(() => {
+    const on = () => {
+      let now = "";
+      // at the foot of the page the last sections can never reach the top, so there the line is drawn lower down
+      const line = innerHeight + scrollY >= document.documentElement.scrollHeight - 4 ? innerHeight * 0.7 : 220;
+      box.current?.querySelectorAll<HTMLElement>("section.sec").forEach(e => { if (e.getBoundingClientRect().top < line) now = e.dataset.section ?? ""; });
+      setReading(now || sections[0]?.id || "");
+    };
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, [sections]);
   const pin = (k: string) => setPinned(pinned.includes(k) ? pinned.filter(p => p !== k) : [...pinned, k]);
   const total = sections.filter(s => s.id !== "pinned").reduce((n, s) => n + s.keys.length, 0);
 
@@ -59,20 +78,30 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
   if (!total) return <p className="muted">These runs have logged no numbers yet.</p>;
   return (
     <div className="sections" ref={box}>
-      <div className="secnav">
-        <div className="chips" role="toolbar" aria-label="Sections of charts">
-          {sections.map(s => <button key={s.id} className="small" aria-pressed={isOpen(s)} data-tip={isOpen(s) ? "Close this section" : "Open this section and go to it"}
-            onClick={() => goTo(s)}>{s.title} <span className="count">{matching(s).length}</span></button>)}
-        </div>
-        <span className="grow" />
+      <nav className="toc" aria-label="Contents">
         <input type="search" value={find} onChange={e => setFind(e.target.value)} placeholder={`Find among ${total} charts`} aria-label="Find a chart by name" />
-        <div className="seg" role="group" aria-label="Size of the charts">
-          {(["s", "m", "l"] as const).map(k => <button key={k} className="small" aria-pressed={size === k} data-tip={{ s: "Small charts, more to a row", m: "Medium charts", l: "Large charts, one or two to a row" }[k]}
-            onClick={() => setSize(k)}>{k.toUpperCase()}</button>)}
+        <ol>
+          {sections.map(s => {
+            const keys = matching(s);
+            if (q && !keys.length) return null;
+            return (
+              <li key={s.id} className={reading === s.id ? "here" : ""}>
+                <button className="entry" aria-current={reading === s.id ? "true" : undefined} onClick={() => goTo(s)}>
+                  <span className="name">{s.title}</span><span className="count">{keys.length}</span></button>
+                {isOpen(s) && <ol>{keys.map(k => <li key={k}><button className="entry sub" title={view.about[k] || undefined} onClick={() => goTo(s, k)}>{shortName(k, s.id)}</button></li>)}</ol>}
+              </li>
+            );
+          })}
+        </ol>
+        <div className="row foot">
+          <div className="seg" role="group" aria-label="Size of the charts">
+            {(["s", "m", "l"] as const).map(k => <button key={k} className="small" aria-pressed={size === k} data-tip={{ s: "Small charts, more to a row", m: "Medium charts", l: "Large charts, one or two to a row" }[k]}
+              onClick={() => setSize(k)}>{k.toUpperCase()}</button>)}
+          </div>
+          <button className="small ghost" onClick={() => setOpen(Object.fromEntries(sections.map(s => [s.id, !sections.every(isOpen)])))}>{sections.every(isOpen) ? "Close all" : "Open all"}</button>
         </div>
-        <button className="small ghost" onClick={() => setOpen(Object.fromEntries(sections.map(s => [s.id, !sections.every(isOpen)])))}>{sections.every(isOpen) ? "Close all" : "Open all"}</button>
-      </div>
-
+      </nav>
+      <div className="secbody">
       {sections.map(s => {
         const keys = matching(s);
         if (q && !keys.length) return null;
@@ -94,6 +123,7 @@ export function ChartSections({ numbers, clocks, runs, view, sync }:
       })}
       {q && !sections.some(s => matching(s).length) && <p className="muted">No chart has “{find}” in its name.</p>}
       {hidden.length > 0 && <p className="muted small row">Hidden charts, click one to bring it back: {hidden.map(k => <button key={k} className="small" onClick={() => setHidden(hidden.filter(h => h !== k))}>{k}</button>)}</p>}
+      </div>
     </div>
   );
 }

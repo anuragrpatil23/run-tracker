@@ -156,12 +156,26 @@ svg.dots{width:100%;max-width:980px;height:auto} svg.dots .gridline{stroke:var(-
 svg.dots .axt{font-family:var(--sans);font-size:11.5px;fill:var(--muted)} svg.dots .axt.name{fill:var(--soft)}
 
 /* sections of charts, and the bar that lists them */
-.sections{display:flex;flex-direction:column;gap:20px;min-width:0}
-.secnav{position:sticky;top:100px;z-index:10;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;margin-top:-10px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--rule)}
-.secnav .chips{display:flex;gap:6px;flex-wrap:wrap} .secnav .chips button{border-radius:14px;padding:3px 11px}
-.secnav .count{opacity:.6;margin-left:3px} .secnav input[type=search]{padding:4px 10px;font-size:12.5px;width:190px}
+.sections{display:grid;grid-template-columns:216px minmax(0,1fr);gap:40px;align-items:start}
+.secbody{display:flex;flex-direction:column;gap:20px;min-width:0}
+/* the table of contents: sections, and under each open one its charts */
+.toc{position:sticky;top:112px;max-height:calc(100vh - 132px);display:flex;flex-direction:column;gap:12px;min-width:0}
+.toc input[type=search]{padding:6px 10px;font-size:12.5px;width:100%}
+.toc ol{list-style:none;margin:0;padding:0} .toc>ol{overflow:auto;flex:1;margin-right:-6px;padding-right:6px}
+.toc .entry{all:unset;box-sizing:border-box;width:100%;cursor:pointer;display:flex;align-items:baseline;gap:8px;padding:6px 10px;border-radius:7px;font-size:13.5px;font-weight:500;color:var(--soft)}
+.toc .entry:hover{background:var(--wash);color:var(--fg)} .toc .entry:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.toc .entry .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .toc .entry .count{margin-left:auto;font-size:11.5px;font-weight:400;color:var(--faint)}
+.toc li.here>.entry{color:var(--fg);font-weight:600;background:var(--wash)}
+.toc ol ol{margin:2px 0 8px 14px;border-left:1px solid var(--rule);padding-left:6px}
+.toc .entry.sub{font-weight:400;font-size:12.5px;padding:3px 10px;color:var(--muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toc .foot{justify-content:space-between;padding-top:10px;border-top:1px solid var(--rule)}
 .seg{display:flex} .seg button{border-radius:0;margin-left:-1px} .seg button:first-child{border-radius:6px 0 0 6px;margin-left:0} .seg button:last-child{border-radius:0 6px 6px 0}
-section.sec{display:flex;flex-direction:column;gap:18px;scroll-margin-top:166px}
+figure.chart{scroll-margin-top:140px} figure.chart.found .t{background:var(--mark);border-radius:4px;box-shadow:0 0 0 4px var(--mark)}
+@media (max-width:900px){
+  .sections{grid-template-columns:1fr;gap:16px} .toc{position:static;max-height:none}
+  .toc>ol{display:flex;gap:4px;overflow-x:auto} .toc ol ol{display:none} .toc .entry{white-space:nowrap}
+}
+section.sec{display:flex;flex-direction:column;gap:18px;scroll-margin-top:112px}
 .sechead{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;row-gap:2px;padding:14px 4px 14px 0;border-bottom:1px solid var(--rule)}
 .sechead .toggle{all:unset;cursor:pointer;display:flex;gap:14px;align-items:center;min-width:0}
 .sechead .toggle:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
@@ -184,8 +198,8 @@ section.sec{gap:22px} section.sec.open{padding-bottom:14px}
 [data-tip]::after{content:attr(data-tip);position:absolute;top:calc(100% + 7px);left:50%;transform:translate(-50%,-3px);z-index:40;pointer-events:none;
   background:var(--fg);color:var(--bg);font:500 12px/1.35 var(--sans);letter-spacing:0;padding:5px 9px;border-radius:6px;white-space:nowrap;max-width:320px;opacity:0;transition:opacity .12s .25s,transform .12s .25s;box-shadow:var(--shadow)}
 [data-tip]:hover::after,[data-tip]:focus-visible::after{opacity:1;transform:translate(-50%,0)}
-.tools [data-tip]::after,.secnav .seg [data-tip]::after,nav.top [data-tip]::after,.toolbar>button[data-tip]::after{left:auto;right:0;transform:translate(0,-3px)}
-.tools [data-tip]:hover::after,.secnav .seg [data-tip]:hover::after,nav.top [data-tip]:hover::after,.toolbar>button[data-tip]:hover::after{transform:none}
-aside.runs [data-tip]::after,.chips [data-tip]::after{left:0;transform:translate(0,-3px)} aside.runs [data-tip]:hover::after,.chips [data-tip]:hover::after{transform:none}
+.tools [data-tip]::after,nav.top [data-tip]::after,.toolbar>button[data-tip]::after{left:auto;right:0;transform:translate(0,-3px)}
+.tools [data-tip]:hover::after,nav.top [data-tip]:hover::after,.toolbar>button[data-tip]:hover::after{transform:none}
+aside.runs [data-tip]::after,.toc [data-tip]::after,.runstrip [data-tip]::after{left:0;transform:translate(0,-3px)} aside.runs [data-tip]:hover::after,.toc [data-tip]:hover::after,.runstrip [data-tip]:hover::after{transform:none}
 @media (hover:none){ [data-tip]::after{display:none} }
 nav.top [data-tip]::after{white-space:normal;width:max-content;max-width:360px}

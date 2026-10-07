@@ -25,7 +25,7 @@ between the three parts.
   draw exported pages and must depend on nothing but the browser. `app.js`/`index.html` are the earlier
   plain viewer, served at `/classic`.
 - The home page has no sidebar: a strip of run chips stays in view as the legend, the full list is behind
-  "Choose runs", and charts sit in sections. Each section and chart carries a sentence saying what it shows
+  "Choose runs", and charts sit in sections with a table of contents down the left. Each section and chart carries a sentence saying what it shows
   (from `run.describe` in the writer, or typed in the viewer and kept in `about.json` in the data folder).
 - `claude-workspace/` — working notes for this project.
 
