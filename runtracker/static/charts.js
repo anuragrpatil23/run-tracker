@@ -128,8 +128,17 @@ const RT = (() => {
     tip.style.top = Math.max(4, py) + "px";
   }
 
+  /* A number that is always above zero and falls or climbs a hundredfold is a flat line with one spike on a
+     plain scale, which is what a loss looks like from step 0. Such a number starts on a log scale. */
+  function wantsLog(series) {
+    let lo = Infinity, hi = -Infinity;
+    for (const sr of series) for (const p of sr.points) if (p[1] != null) { if (p[1] < lo) lo = p[1]; if (p[1] > hi) hi = p[1]; }
+    return lo > 0 && hi / lo >= 100;
+  }
+
   /* opt: {title, series: [{name, slot, points}], xLabel, logY, logX, height, onLog(bool)} */
   function lineChart(host, opt) {
+    if (opt.logY == null) opt.logY = wantsLog(opt.series);   // unless the reader has chosen, pick the scale that shows the shape
     const {fig, cap} = frame(host, opt);
     let showTable = false;
     if (opt.onLog) cap.append(h("button", {class: "small", "aria-pressed": String(!!opt.logY), title: "log scale on the y axis",

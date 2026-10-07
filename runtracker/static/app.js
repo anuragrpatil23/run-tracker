@@ -54,6 +54,9 @@
     let runs = [], lastSig = "", filter = keep.get("filter", ""), stateFilter = "", sort = keep.get("sort", {key: "started", dir: -1});
     const selected = new Set(keep.get("selected", []));
     const tableBox = h("div", {class: "scroll"}), colsBox = h("div", {class: "row"}), count = h("span", {class: "muted"});
+    /* the charts under the table: the chosen numbers, one chart each, a line per run */
+    const chartsBox = h("div", {class: "grid"}), chartsHead = h("div", {class: "row"}), logsOf = new Map(), slotOf = new Map(), logs = keep.get("log", {});
+    let chartSig = "";
     const compareBtn = h("button", {onclick: () => (location.hash = "#/compare/" + [...selected].map(encodeURI).join(","))}, "Compare");
     put(view, 
       h("header", null, h("h1", null, "Runs")),
@@ -64,13 +67,14 @@
           ["", "running", "pending", "stalled", "finished", "failed", "died", "ended"].map(s => h("option", {value: s}, s || "any state"))),
         compareBtn, count),
       h("div", {class: "panel"}, tableBox),
-      h("details", null, h("summary", {class: "muted"}, "Choose the numbers shown as columns"), colsBox));
+      h("details", null, h("summary", {class: "muted"}, "Choose the numbers shown as columns and charts"), colsBox),
+      chartsHead, chartsBox);
 
     function draw() {
       const diff = differing(runs);
       const metrics = [...new Set(runs.flatMap(r => Object.keys(r.latest)))];
       let chosen = keep.get("metrics", null);
-      if (!chosen) chosen = metrics.filter(m => !m.includes(".") && m !== "step").slice(0, 5);
+      if (!chosen) chosen = metrics.filter(m => !m.includes(".") && m !== "step").slice(0, 6);
       chosen = chosen.filter(m => metrics.includes(m));
       put(colsBox, metrics.map(m => h("label", {class: "inline mono"}, h("input", {type: "checkbox", checked: chosen.includes(m),
         onchange: e => { keep.set("metrics", e.target.checked ? [...chosen, m] : chosen.filter(x => x !== m)); draw(); }}), m)));
@@ -83,6 +87,12 @@
         label + (sort.key === key ? (sort.dir > 0 ? " ↑" : " ↓") : ""));
       count.textContent = runs.length ? `${shown.length} of ${runs.length} runs · ${selected.size} chosen` : "";
       compareBtn.disabled = selected.size < 1;
+      /* Which runs are drawn: the ticked ones, or all that are shown, up to the eight colours there are. A run keeps
+         its colour for as long as it stays drawn, whatever else is ticked or filtered. */
+      const pool = selected.size ? shown.filter(r => selected.has(r.id)) : shown, charted = pool.slice(0, 8);
+      for (const id of [...slotOf.keys()]) if (!charted.some(r => r.id === id)) slotOf.delete(id);
+      for (const r of charted) if (!slotOf.has(r.id)) { const used = new Set(slotOf.values()); let n = 1; while (used.has(n)) n++; slotOf.set(r.id, n); }
+      drawCharts(charted, pool.length, chosen).catch(() => {});
       if (!runs.length) {
         put(tableBox, h("p", null, "No runs have been copied yet."), h("p", {class: "muted"}, "Say where runs are written, then copy them:"),
           h("pre", null, "rt source add sae --ssh minerva --root /path/to/runs --scheduler lsf\nrt sync"));
@@ -94,11 +104,31 @@
         h("tbody", null, shown.map(r => h("tr", {class: selected.has(r.id) ? "sel" : ""},
           h("td", null, h("input", {type: "checkbox", checked: selected.has(r.id), "aria-label": "choose " + r.name + " for comparing",
             onchange: e => { e.target.checked ? selected.add(r.id) : selected.delete(r.id); keep.set("selected", [...selected]); draw(); }})),
-          h("td", null, runLink(r.id, r.name), " ", h("span", {class: "muted"}, r.source), " ", (r.tags || []).map(t => h("span", {class: "tag"}, t))),
+          h("td", null, slotOf.has(r.id) ? h("i", {class: "swatch", style: `background:${colour(slotOf.get(r.id))}`}) : null, runLink(r.id, r.name), " ", h("span", {class: "muted"}, r.source), " ", (r.tags || []).map(t => h("span", {class: "tag"}, t))),
           h("td", null, badge(r)), h("td", {class: "num"}, progress(r)), h("td", {class: "num"}, dur(r.seconds)), h("td", null, when(r.started)),
           diff.map(k => h("td", {class: "num clip", title: String(r.settings[k] ?? "")}, fmt(r.settings[k]))), chosen.map(m => h("td", {class: "num"}, fmt(r.latest[m]))),
           h("td", null, h("input", {type: "text", value: r.note || "", placeholder: "one line about this run", "aria-label": "note for " + r.name,
             onchange: e => api("/api/local", {id: r.id, note: e.target.value}).then(() => (r.note = e.target.value))})))))));
+    }
+    async function drawCharts(charted, outOf, chosen) {
+      await Promise.all(charted.map(async r => {
+        const have = logsOf.get(r.id) || [];
+        if (have.length < r.lines) logsOf.set(r.id, have.concat((await api(`/api/log?id=${enc(r.id)}&since=${have.length}`)).records));
+      }));
+      if (mine !== visit) return;
+      const sig = JSON.stringify([charted.map(r => [r.id, slotOf.get(r.id), (logsOf.get(r.id) || []).length]), chosen, logs, outOf]);
+      if (sig === chartSig) return;                       // nothing new to draw
+      chartSig = sig;
+      /* a number that only ever goes up in every run (rows seen, minutes) is an x axis, not something to compare */
+      const clocks = f => charted.length && charted.every(r => xChoices(logsOf.get(r.id) || []).some(c => c[0] === f));
+      const fields = chosen.filter(f => !clocks(f));
+      put(chartsHead, charted.length ? [h("h2", null, selected.size ? "The ticked runs" : "All the runs shown"),
+        h("span", {class: "muted"}, (outOf > 8 ? `the first 8 of ${outOf}; tick runs to choose which · ` : "") + "against step · tick runs to draw only those · click a run's name for everything it logged")] : []);
+      put(chartsBox, fields.map(f => { const b = h("div"); queueMicrotask(() => one(b, f)); return b; }));
+      function one(box, f) {
+        lineChart(box, {title: f, xLabel: "step", logY: logs[f], onLog: v => { logs[f] = v; keep.set("log", logs); one(box, f); },
+          series: charted.map(r => ({name: r.name, slot: slotOf.get(r.id), points: points(logsOf.get(r.id) || [], "step", f)}))});
+      }
     }
     async function load() {
       const d = await api("/api/runs");
@@ -162,7 +192,7 @@
       if (!xs.some(c => c[0] === x)) x = "step";
       put(xsel, xs.map(([v, label]) => h("option", {value: v, selected: v === x}, label)));
       const xLabel = xs.find(c => c[0] === x)[1];
-      const one = (box, field, title) => lineChart(box, {title: title || field, xLabel, logY: !!logs[field], series: [{name: field, slot: 1, points: points(records, x, field)}],
+      const one = (box, field, title) => lineChart(box, {title: title || field, xLabel, logY: logs[field], series: [{name: field, slot: 1, points: points(records, x, field)}],
         onLog: v => { logs[field] = v; keep.set("log", logs); one(box, field, title); }});
       const top = sc.numbers.filter(n => !n.includes(".") && n !== x);
       put(charts, top.length ? top.map(f => { const b = h("div"); queueMicrotask(() => one(b, f)); return b; })
@@ -230,7 +260,7 @@
       if (!file) return;
       try {
         const r = await api("/api/export", {title: d.name, file, runs: [id], x, lede: d.note || "",
-          charts: sc.numbers.filter(n => !n.includes(".") && n !== x).map(f => ({field: f, logY: !!logs[f]})), timelines: [...sc.groups, ...sc.words].map(key => ({run: id, key}))});
+          charts: sc.numbers.filter(n => !n.includes(".") && n !== x).map(f => ({field: f, logY: logs[f]})), timelines: [...sc.groups, ...sc.words].map(key => ({run: id, key}))});
         alert("Saved to " + r.path);
       } catch (e) { alert(e.message); }
     }
@@ -303,7 +333,7 @@
       draw.state = {setting, metric, how};
     }
     function one(box, f, xLabel) {
-      lineChart(box, {title: f, xLabel, logY: !!logs[f], series: runs.map(r => ({name: r.name, slot: r.slot, points: points(r.records, x, f)})),
+      lineChart(box, {title: f, xLabel, logY: logs[f], series: runs.map(r => ({name: r.name, slot: r.slot, points: points(r.records, x, f)})),
         onLog: v => { logs[f] = v; keep.set("log", logs); one(box, f, xLabel); }});
     }
     async function exportPage() {
@@ -312,7 +342,7 @@
       const title = prompt("Title for the page", "Comparing " + runs.length + " runs") || "Runs";
       try {
         const st = draw.state;
-        const r = await api("/api/export", {title, file, runs: runs.map(r => r.id), x, charts: fields().filter(f => f !== x).map(f => ({field: f, logY: !!logs[f]})),
+        const r = await api("/api/export", {title, file, runs: runs.map(r => r.id), x, charts: fields().filter(f => f !== x).map(f => ({field: f, logY: logs[f]})),
           against: st.setting && st.metric ? {setting: st.setting, metric: st.metric, logX: !!ag.logX, logY: !!ag.logY} : null});
         alert("Saved to " + r.path);
       } catch (e) { alert(e.message); }
