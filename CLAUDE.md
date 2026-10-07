@@ -37,6 +37,10 @@ between the three parts.
   is the view. The contract is `docs/scan.md`, agreed with the session that owns the scanner in Learn-AI; change
   it there first. The view must not assume a kind of model: check it against `tests/toy_scanner.py` as well as
   the real scanner.
+- `scankit/` — a separate package (`run-tracker-scankit`, imported as `scankit`) that scanners are written on.
+  It may use NumPy; nothing under `runtracker/` or `tracker.py` may import it or NumPy. `tests/toy_scanner.py`
+  stays in the standard library so the tracker's own tests need nothing; `scankit/examples/toy.py` is the
+  same network written on the kit.
 - `claude-workspace/` — working notes for this project.
 
 ## Rules

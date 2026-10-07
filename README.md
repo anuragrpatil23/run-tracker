@@ -176,8 +176,10 @@ rt scan add myproject --url http://127.0.0.1:8790                    # tell the 
 ```
 
 A scanner must be on this machine: any other address is refused. Weights that are still on the
-cluster are listed in the tab with a button to fetch them. `tests/toy_scanner.py` is a complete
-scanner for a tiny made-up network in the standard library, to read or to start from.
+cluster are listed in the tab with a button to fetch them. To write a scanner for
+your own network, use [scankit](scankit/README.md): it carries the part that is the same every time,
+so an experiment writes four functions. It is a separate package in this repository and the only part
+that needs NumPy.
 
 ## What it does not do
 
