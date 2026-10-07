@@ -162,7 +162,10 @@ The viewer listens on 127.0.0.1 only and has no accounts.
 ## Scan: running text through a trained network
 
 The Scan tab of a project lets you type text, run it through a trained network, and see what lit
-up: a drawing of the network, a grid of the text's tokens against the strongest units at any step,
+up. The sheet shows the units a sparse autoencoder reads as a fixed grid of cells that glows for
+each token, with the features it decodes to beside it; choosing a feature draws its own pattern on
+the sheet, and choosing two shows the cells they share. Below it: a drawing of the network that
+lights up step by step, a grid of the text's tokens against the strongest units at any step,
 one token's whole row as a strip, a page for any unit, two texts set against each other, and the
 same text through several saved snapshots of the weights.
 

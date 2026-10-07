@@ -9,8 +9,9 @@
    other; and the same text through several snapshots. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, cssColour, enc, fmt, Run, sizeText, useStored } from "./lib";
+import { ContrastSheets, sheetParts, SheetView } from "./Sheet";
 
-type Node = { id: string; label: string; about?: string; group?: string | null; kind: string; width?: number; per?: string; lane: number; order: number;
+type Node = { id: string; label: string; about?: string; group?: string | null; kind: string; width?: number; each?: number; per?: string; lane: number; order: number;
   weights?: number; unit?: string; bend?: string; sparse?: boolean; described?: boolean };
 type Graph = { title: string; groups?: { id: string; label: string }[]; nodes: Node[]; edges: { from: string; to: string; kind?: string }[] };
 type Snapshot = { id: string; label: string; run?: string | null; step?: number; of?: number; available?: boolean; state?: string; file?: string };
@@ -18,7 +19,7 @@ type Top = [number, number, (string[] | null)?];
 type NodeResult = { size?: number[]; on?: number[]; top?: Top[][]; grid?: { units: number[]; values: number[][]; words?: (string[] | null)[] } | number[][] };
 type Result = { run: string; snapshot: string; tokens: { i: number; text: string }[]; nodes: Record<string, NodeResult>; next?: { text: string; chance: number }[] };
 type Side = [number, number, (string[] | null)?][];
-type Contrast = { tokens_a: { i: number; text: string }[]; tokens_b: { i: number; text: string }[]; pairs: [number, number][];
+type Contrast = { run_a: string; run_b: string; tokens_a: { i: number; text: string }[]; tokens_b: { i: number; text: string }[]; pairs: [number, number][];
   per_pair: { same_text: boolean; distance: number; only_a: Side; only_b: Side; both: [number, number, number, (string[] | null)?][] }[]; whole: { only_a: Side; only_b: Side } };
 type Health = { name: string; device?: string; max_tokens?: number; supports?: string[] };
 type Problem = { code: string; message: string };
@@ -48,7 +49,7 @@ function Grid({ tokens, columns, values, heads, onUnit, label }:
 function Drawing({ graph, picked, pick, heat, token }: { graph: Graph; picked: string; pick: (id: string) => void; heat: Record<string, number[]>; token: number }) {
   const orders = [...new Set(graph.nodes.map(n => n.order))].sort((a, b) => a - b);
   const lanes = [...new Set(graph.nodes.map(n => n.lane))].sort((a, b) => b - a);          // higher lanes are drawn above
-  const CW = 108, RH = 78, BW = 96, BH = 52, PX = 22, PY = 26;
+  const CW = 112, RH = 90, BW = 100, BH = 64, PX = 22, PY = 26;
   const at = (n: Node) => ({ x: PX + orders.indexOf(n.order) * CW, y: PY + lanes.indexOf(n.lane) * RH });
   const byId = new Map(graph.nodes.map(n => [n.id, n]));
   const W = PX * 2 + orders.length * CW - (CW - BW), H = PY + lanes.length * RH - (RH - BH) + 12;
@@ -70,15 +71,19 @@ function Drawing({ graph, picked, pick, heat, token }: { graph: Graph; picked: s
       })}
       {graph.nodes.map(n => {
         const p = at(n), lit = heat[n.id], folded = n.kind === "collapsed";
-        const caption = folded ? "" : [n.kind === "linear+bend" ? n.bend ?? "bent" : n.kind === "other" ? "" : n.kind.replace(/-/g, " ").replace("weights over positions", "shares"), n.width ? fmt(n.width) : ""].filter(Boolean).join(" · ");
+        // Two sizes that are easy to mix up, said apart: how many units the step has, and how many numbers each one reads.
+        const kind = n.kind === "linear+bend" ? `linear, ${n.bend ?? "bent"}` : n.kind === "other" ? "" : n.kind.replace(/-/g, " ").replace("weights over positions", "shares");
+        const many = n.width ? `${fmt(n.width)} ${n.unit ?? "unit"}s` : kind;
+        const wide = n.each ? `each ${fmt(n.each)} wide` : n.width ? kind : "";
         const cw = lit ? (BW - 12) / lit.length : 0;
         return <g key={n.id} className={"node" + (n.id === picked ? " picked" : "") + (lit ? " recorded" : "")} tabIndex={0} role="button" aria-pressed={n.id === picked}
           aria-label={`${n.label}${n.width ? `, ${fmt(n.width)} ${n.unit ?? "unit"}s` : ""}`} onClick={() => pick(n.id)} onKeyDown={e => (e.key === "Enter" || e.key === " ") && pick(n.id)}>
-          <title>{[n.label + ".", n.about, n.weights ? `${fmt(n.weights)} weights.` : ""].filter(Boolean).join(" ")}</title>
+          <title>{[n.label + ".", n.about, n.width && n.each ? `${fmt(n.width)} ${n.unit ?? "unit"}s, each reading ${fmt(n.each)} numbers.` : "", n.weights ? `${fmt(n.weights)} weights.` : ""].filter(Boolean).join(" ")}</title>
           <rect x={p.x} y={p.y} width={BW} height={BH} rx={8} className={folded ? "folded" : ""} />
-          <text className="nodelabel" x={p.x + BW / 2} y={p.y + (folded ? 22 : 18)} textAnchor="middle">{short(folded ? n.label.split(",")[0] : n.label, 15)}</text>
-          <text className="nodekind" x={p.x + BW / 2} y={p.y + (folded ? 36 : 31)} textAnchor="middle">{folded ? short(n.label.split(",").slice(1).join(",").trim(), 20) : caption}</text>
-          {lit && lit.map((v, i) => <rect key={i} className={"lit" + (i === token ? " now" : "")} x={p.x + 6 + i * cw} y={p.y + 38} width={Math.max(1, cw - 1)} height={8} rx={1.5} style={{ fillOpacity: 0.12 + 0.88 * v }} />)}
+          <text className="nodelabel" x={p.x + BW / 2} y={p.y + (folded ? 24 : 18)} textAnchor="middle">{short(folded ? n.label.split(",")[0] : n.label, 15)}</text>
+          <text className="nodekind" x={p.x + BW / 2} y={p.y + (folded ? 38 : 31)} textAnchor="middle">{folded ? short(n.label.split(",").slice(1).join(",").trim(), 20) : many}</text>
+          {!folded && <text className="nodekind" x={p.x + BW / 2} y={p.y + 43} textAnchor="middle">{wide}</text>}
+          {lit && lit.map((v, i) => <rect key={i} className={"lit" + (i === token ? " now" : "")} x={p.x + 6 + i * cw} y={p.y + 50} width={Math.max(1, cw - 1)} height={8} rx={1.5} style={{ fillOpacity: 0.12 + 0.88 * v }} />)}
         </g>;
       })}
     </svg></div>
@@ -130,6 +135,7 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
   const [differ, setDiffer] = useState<Contrast | null>(null);
   const [node, setNode] = useState("");
   const [token, setToken] = useState(0);
+  const [pair, setPair] = useState<number | null>(null);               // which pair of tokens the two sheets show
   const [unit, setUnit] = useState<{ node: string; unit: number } | null>(null);
   const [page, setPage] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -220,6 +226,7 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
       if (contrasting) {
         await makeReady([primary]);
         setDiffer(await ask("contrast", "", { a: text, b: other, snapshot: primary, node, top: 12 }));
+        setPair(null);
         setResults({});
       } else {
         const ids = chosen.filter(id => snapshots.some(s => s.id === id && usable(s)));
@@ -297,13 +304,18 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
       </div>
 
       {!contrasting && result && <>
-        <div className="row tokens" role="group" aria-label="The text as the model split it">
+        <div className="row tokens" role="group" aria-label="The text as the model split it. The arrow keys step through it."
+          onKeyDown={e => { const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0; if (!d) return; e.preventDefault();
+            const next = Math.max(0, Math.min(result.tokens.length - 1, token + d)); setToken(next); (e.currentTarget.querySelectorAll("button.tok")[next] as HTMLElement | undefined)?.focus(); }}>
           {result.tokens.map(t => <button key={t.i} className="tok mono" aria-pressed={t.i === token} onClick={() => setToken(t.i)}>{showToken(t.text)}</button>)}
           {result.next?.length ? <span className="muted small">would write next: {result.next.slice(0, 3).map(n => `“${showToken(n.text)}” ${Math.round(n.chance * 100)}%`).join(", ")}</span> : null}
         </div>
+        {graph && sheetParts(graph) && <SheetView project={project} graph={graph} run={result.run} tokens={result.tokens} top={result.nodes[sheetParts(graph)!.features.id]?.top as any}
+          token={token} snapshot={primary} openUnit={(n, u) => setUnit({ node: n, unit: u })} theme={theme} />}
       </>}
       {graph && <><div className="row"><h2>{graph.title}</h2><span className="muted small">{Object.keys(heat).length && !contrasting ? "Each step's strip has one cell per token, brighter where that token's row is larger. Click a step to look inside it." : "Click a step to look inside it. Run some text and every step lights up."}</span></div><Drawing graph={graph} picked={node} pick={setNode} heat={contrasting ? {} : heat} token={token} />
-        {picked && <p className="small"><b>{picked.label}.</b> <span className="muted">{picked.about ?? ""} {picked.width ? `${fmt(picked.width)} ${picked.unit ?? "unit"}s${picked.per === "token-pair" ? ", one for each pair of tokens" : " for each token"}.` : ""}</span></p>}</>}
+        {picked && <p className="small"><b>{picked.label}.</b> <span className="muted">{picked.about ?? ""} {picked.width
+          ? `${fmt(picked.width)} ${picked.unit ?? "unit"}s${picked.each ? `, each ${fmt(picked.each)} wide (that many numbers go into one ${picked.unit ?? "unit"})` : ""}${picked.per === "token-pair" ? ", one for each pair of tokens" : ", worked out for each token"}.` : ""}</span></p>}</>}
 
       {!contrasting && result && <>
         {Object.entries(results).map(([id, r]) => {
@@ -322,10 +334,14 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
       {contrasting && differ && <section className="panel">
         <h2>What differs at {picked?.label ?? node}</h2>
         <p className="muted small">The two texts are lined up token by token. A later token's row depends on the earlier ones, so everything after the first difference can differ because of it.</p>
+        {graph && sheetParts(graph) && differ.run_a && (() => { const i = pair ?? (firstDiff >= 0 ? firstDiff : 0), [a, b] = differ.pairs[i] ?? [0, 0];
+          return <ContrastSheets project={project} graph={graph} runA={differ.run_a} runB={differ.run_b} a={a} b={b} texts={[differ.tokens_a[a]?.text ?? "", differ.tokens_b[b]?.text ?? ""]} theme={theme}
+            openUnit={(n, u) => setUnit({ node: n, unit: u })} />; })()}
+        <p className="muted small">The sheets show one pair of tokens. Click a row below to show another.</p>
         <div className="scroll"><table className="pairs">
           <thead><tr><th>first text</th><th>second text</th><th className="num">how far apart</th><th>only in the first</th><th>only in the second</th></tr></thead>
           <tbody>{differ.pairs.map(([a, b], i) => { const p = differ.per_pair[i]; return (
-            <tr key={i} className={p.same_text ? "" : "sel"}>
+            <tr key={i} className={(p.same_text ? "" : "sel") + (i === (pair ?? (firstDiff >= 0 ? firstDiff : 0)) ? " shown" : "")} onClick={() => setPair(i)} style={{ cursor: "pointer" }}>
               <td className="mono">{showToken(differ.tokens_a[a].text)}</td><td className="mono">{showToken(differ.tokens_b[b].text)}{i === firstDiff && <span className="tag">first difference</span>}</td>
               <td className="num">{fmt(+p.distance.toPrecision(3))}</td><td className="wrapc">{sideList(p.only_a)}</td><td className="wrapc">{sideList(p.only_b)}</td></tr>); })}</tbody>
         </table></div>

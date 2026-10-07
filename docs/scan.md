@@ -98,6 +98,7 @@ Fields of a node:
 | `id`, `label`, `about` | a stable name, what to show, and one sentence saying what the step does |
 | `kind` | one of `lookup`, `norm`, `linear`, `linear+bend`, `scores`, `weights-over-positions`, `mix`, `add`, `difference`, `collapsed`, `other`; a `collapsed` node stands for steps that are not drawn or run, has no numbers, and needs only `id`, `label`, `lane` and `order`; the drawing picks a symbol from it and shows unknown kinds as a plain box |
 | `width` | how many units it has; the drawing sizes the node by this, on a compressed scale |
+| `each` | optional: how wide one unit is, meaning how many numbers it reads and so how many slopes it has. A step's two sizes are easy to confuse, so the drawing shows both: "3,072 neurons, each 768 wide" |
 | `per` | `token` if it has one row per token, `token-pair` if it is a grid of tokens against tokens |
 | `lane`, `order` | where to place it, both integers: `order` runs left to right, `lane` 0 is the main path, positive lanes are above it and negative below. Steps that happen side by side in different lanes may share an `order`; within one lane it is unique. The view lays out columns by `order` and rows by `lane` |
 | `group` | which box it sits in, or `null`. A group only ever boxes real nodes |
@@ -234,6 +235,27 @@ What the view must say plainly: that a unit lighting up shows it is related to t
 4. `contrast` and contrast mode.
 5. `values` and the strip.
 6. Several snapshots side by side.
+
+## The sheet: the neurons as the thing being scanned
+
+Decided 2026-10-07. The grid of numbers is hard to take in because nothing in it has a place. A brain picture works because every part has a fixed spot, so what lit up is seen without reading. This view gives the network that.
+
+**What has a place.** The units of the step a sparse autoencoder reads: for GPT-2, the 3,072 MLP neurons of the first block. They are the model's real units. Each gets one fixed cell on a sheet, in the order of its number, as close to square as the count allows (64 across by 48 down for 3,072). Where a unit sits means nothing, and the view says so in one line. This is the honest match to a scan: a pattern of activity, in which no single spot means anything alone.
+
+**What the features are.** The reading of the scan. Beside the sheet, the features that the pattern decodes to for the chosen token, strongest first, each with its words.
+
+**What the reader does.**
+
+- Runs text. The sheet glows for the chosen token: each cell shaded by its value with the unit's usual level taken off, one colour above and another below. Clicking a token, or stepping with the arrow keys, moves through the text, and the sheet changes with it.
+- Clicks a feature in the list. Its pattern is drawn on the sheet, so the feature is seen as a constellation of neurons. The reading and the activity can be shown together: the activity as the fill of each cell, the feature's pattern as an outline on the cells it uses most.
+- Chooses two features. Both patterns are drawn, in two colours, with the cells they share marked. This is how "sky" and "sea" are seen to use some of the same neurons.
+- Clicks a cell. The neuron's page opens, with the features that lean on it.
+- Contrasts two texts. Two sheets side by side for the paired tokens, and a third showing the difference.
+- Switches the sheet between what went in and the sparse autoencoder's rebuild of it, to see how close the rebuild is.
+
+**What it needs from the scanner.** Nothing new as a route. The sheet for a token is `values` for the node the sparse autoencoder reads, with `usual`. The reading is that token's `top` at the features node. A feature's pattern is one addition to the `unit` reply: `made_of.all` and `listens_to.all`, each a list with one number per unit of the node read, scaled so that the squares add to 1. Both are optional; a scanner that leaves them out gets the sheet and the reading without the constellations. Which node is the sheet: the one named by `made_of.node`, or, before any feature is opened, the node that a `reads` edge leaves from in the graph.
+
+**A flat map of the features was tried and set aside.** Placing all 32,768 features so that alike patterns sit together keeps about one in five of each feature's nearest neighbours, with our own layout and with UMAP alike, on the first block and on block 7. Small clumps are real (near sky: oceans, shore, valley, beach) and there are no regions that could be named. The features point in nearly unrelated directions, which is what lets so many fit, and that cannot be laid flat. `Learn-AI/train-sparse-autoencoder/layout.py` holds the layout and the measure. If it is ever shown, it should carry that figure on it.
 
 ## The scanner kit: `run-tracker-scankit`
 

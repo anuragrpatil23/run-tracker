@@ -251,3 +251,16 @@ button.unit b{color:var(--fg);font-weight:500;font-family:var(--mono);font-size:
 .drawing .node rect.lit{fill:var(--s1);stroke:none} .drawing .node rect.lit.now{stroke:var(--fg);stroke-width:1.25}
 .drawing .nodekind{font-size:10px} .drawing .node.recorded rect:first-of-type{fill:var(--panel)}
 .scanrun textarea{min-height:0;height:auto}
+
+/* the sheet */
+.sheetrow{display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap}
+.sheet{position:relative;flex:none;max-width:100%} .sheet canvas{display:block;border-radius:4px;max-width:100%} .sheet.empty{background:var(--wash);border-radius:4px}
+.sheet .tip{white-space:nowrap}
+.reading{flex:1;min-width:300px;max-width:560px;display:flex;flex-direction:column;gap:10px}
+.reading ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px} .reading li{display:flex;align-items:center;gap:2px}
+button.feat{all:unset;box-sizing:border-box;flex:1;min-width:0;cursor:pointer;display:grid;grid-template-columns:70px minmax(0,1fr) auto 62px;gap:10px;align-items:center;padding:4px 8px;border-radius:7px;border:1.5px solid transparent;font-size:12.5px}
+button.feat:hover{background:var(--wash)} button.feat.on{background:var(--wash)} button.feat:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+button.feat .bar{display:block;width:70px;margin:0;height:5px} button.feat .bar b{background:var(--s1)} button.feat .words{overflow:hidden;text-overflow:ellipsis;white-space:pre} button.feat .num{text-align:right;font-size:11.5px}
+.swatch.box{width:10px;height:10px;border:2px solid;border-radius:2px;background:none}
+.threesheets{display:flex;gap:26px;flex-wrap:wrap} .threesheets figure{margin:0;display:flex;flex-direction:column;gap:6px} .threesheets figcaption{font-size:12.5px;color:var(--muted)}
+tr.shown td:first-child{box-shadow:inset 3px 0 0 var(--fg)}
