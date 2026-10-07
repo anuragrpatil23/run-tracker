@@ -52,7 +52,9 @@ between the three parts.
 - The format is append-only and tolerant: a folder from before the writer existed must still sync and show.
 - Minerva: read before changing anything, use the existing `ssh minerva` shared connection, and ask
   before any change on the cluster. The tool itself only ever reads there.
-- A copy of `tracker.py` is vendored in `Learn-AI/train-sparse-autoencoder/`. After changing the writer, copy it across.
+- Two files are vendored in `Learn-AI/train-sparse-autoencoder/`: `tracker.py`, and `scankit.py` (from
+  `scankit/scankit.py`). After changing either here, copy it across; after changing the kit, also tell the session
+  that owns the scanner so it can rerun its comparison against `scan_fixtures/`.
 - Dialogs in the app go through `Modal` (a portal to the page). One rendered inside a sticky or positioned
   element ends up underneath its neighbours and cannot be clicked.
 - Series colours in `style.css` (`--s1`..`--s8`) are a checked set in a fixed order; do not reorder or add a ninth.
