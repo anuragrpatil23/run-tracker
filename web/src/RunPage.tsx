@@ -1,6 +1,7 @@
 /* One run: what it was, what it logged, what it printed, and what you expected of it. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, View } from "./Chart";
+import { ChartSections } from "./Sections";
 import { api, dur, enc, fmt, KeyInfo, Run, sizeText, usePoll, useStored, when } from "./lib";
 import { Badge } from "./Workspace";
 
@@ -74,9 +75,6 @@ export function RunPage({ id, query, theme, say }: { id: string; query: URLSearc
   const xNow = xChoices.some(c => c[0] === x) ? x : "step";
   const view: View = { x: xNow, xLabel: xNow === "_t" ? "minutes" : xNow, smooth, logs, theme, tickN: grown, setLog: (k, on) => setLogs(o => ({ ...o, [k]: on })), range, setRange, trim };
   const drawn = useMemo(() => (d ? [{ id, name: d.name, slot: 1 }] : []), [id, d?.name]);
-  const plain = numbers.filter(k => !k.includes(".") && !k.startsWith("sys/") && !clocks.includes(k));   // rows and minutes are axes, not charts
-  const nested = new Map<string, string[]>();
-  for (const k of numbers) if (k.includes(".") && !k.startsWith("sys/")) { const g = k.split(".")[0]; nested.set(g, [...(nested.get(g) ?? []), k]); }
   const machine = numbers.filter(k => k.startsWith("sys/"));
   const wordGroups = [...new Set(keys.filter(k => k.kind === "words").map(k => (k.key.includes(".") ? k.key.split(".").slice(0, -1).join(".") : k.key)))];
   const { data: out } = usePoll<{ text: string }>(() => (tab === "output" ? api(`/api/v2/output?id=${enc(id)}`) : Promise.resolve({ text: "" })), tab === "output" ? 8000 : 0, [id, tab]);
@@ -124,12 +122,9 @@ export function RunPage({ id, query, theme, say }: { id: string; query: URLSearc
         </>}
       </div>
 
-      {tab === "charts" && <>
-        <div className="grid">{plain.map(k => <Panel key={k} name={k} runs={drawn} view={view} sync="run" />)}</div>
-        {[...nested].map(([g, list]) => <details key={g} className="section" open><summary>{g} <span className="muted">{list.length} numbers</span></summary>
-          <div className="grid">{list.map(k => <Panel key={k} name={k} title={k.slice(g.length + 1)} runs={drawn} view={view} sync="run" />)}</div></details>)}
-        {!numbers.length && <p className="muted">{d.lines ? "This run logs no numbers." : "Nothing has been logged yet."}</p>}
-      </>}
+      {tab === "charts" && (numbers.some(k => !k.startsWith("sys/"))
+        ? <ChartSections numbers={numbers.filter(k => !k.startsWith("sys/"))} clocks={clocks} runs={drawn} view={view} sync="run" />
+        : <p className="muted">{d.lines ? "This run logs no numbers." : "Nothing has been logged yet."}</p>)}
       {tab === "words" && (wordGroups.length ? wordGroups.map(g => <Words key={g} id={id} name={g} find={(query.get("find") || "").toLowerCase()} at={query.get("at")} grown={grown} />)
         : <p className="muted">This run has logged no words: no field that is text or a list of text.</p>)}
       {tab === "machine" && (machine.length ? <div className="grid">{machine.map(k => <Panel key={k} name={k} title={k.slice(4)} runs={drawn} view={view} sync="sys" />)}</div>

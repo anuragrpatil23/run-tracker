@@ -2,7 +2,7 @@
      #/                 the workspace
      #/run/<id>         one run
      #/search/<text>    the words logged in every run */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { api, dur, enc, fmt, Run, runHref, SyncState, useHash, usePoll, useStored } from "./lib";
 import { RunPage, Word } from "./RunPage";
 import { Workspace } from "./Workspace";
@@ -40,7 +40,8 @@ export function App() {
   const [toast, setToast] = useState("");
   const [q, setQ] = useState("");
   const { data, reload } = usePoll<Listing>(() => api("/api/v2/runs"), 5000, []);
-  useEffect(() => { theme ? document.documentElement.setAttribute("data-theme", theme) : document.documentElement.removeAttribute("data-theme"); }, [theme]);
+  // Before the charts redraw: they read their colours off the page, so the page must already be in the new theme.
+  useLayoutEffect(() => { theme ? document.documentElement.setAttribute("data-theme", theme) : document.documentElement.removeAttribute("data-theme"); }, [theme]);
   const say = useCallback((text: string) => { setToast(text); setTimeout(() => setToast(t => (t === text ? "" : t)), 5000); }, []);
   const shownTheme = theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 

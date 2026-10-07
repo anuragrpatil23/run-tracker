@@ -33,22 +33,37 @@ const tint = (hex: string, alpha: number) => {
   const n = parseInt(hex.replace("#", "").padEnd(6, "0").slice(0, 6), 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${alpha})`;
 };
-/* Several runs as one line: at each x, the mean of the members that have a value there, with their lowest and highest.
-   Runs logged at the same steps line up exactly; a very long run is thinned before it gets here, and then the mean at
-   an x is over the members that kept a point there. */
+/* Several runs as one line: at each x, the mean of the members, with their lowest and highest. Members need not have
+   logged at the same steps: each is read off at every x any member logged, by a straight line between its own two
+   nearest points, and counts only between its first and last point. */
 export function bundle(label: string, slot: number, members: Line[]): Line {
-  const at = new Map<number, number[]>();
-  for (const l of members) l.x.forEach((x, i) => { const a = at.get(x); a ? a.push(l.y[i]) : at.set(x, [l.y[i]]); });
-  const x = [...at.keys()].sort((a, b) => a - b);
-  const of = (f: (v: number[]) => number) => x.map(v => f(at.get(v)!));
-  return { label, slot, x, y: of(v => v.reduce((a, b) => a + b, 0) / v.length), lo: of(v => Math.min(...v)), hi: of(v => Math.max(...v)), members: members.length };
+  const xs = [...new Set(members.flatMap(l => l.x))].sort((a, b) => a - b);
+  const read = members.map(l => {
+    const out: (number | null)[] = new Array(xs.length).fill(null);
+    let j = 0;
+    for (let i = 0; i < xs.length; i++) {
+      const x = xs[i];
+      if (!l.x.length || x < l.x[0] || x > l.x[l.x.length - 1]) continue;
+      while (j < l.x.length - 2 && l.x[j + 1] < x) j++;
+      const x0 = l.x[j], x1 = l.x[j + 1] ?? x0;
+      out[i] = x1 === x0 ? l.y[j] : l.y[j] + (l.y[j + 1] - l.y[j]) * (x - x0) / (x1 - x0);
+    }
+    return out;
+  });
+  const x: number[] = [], y: number[] = [], lo: number[] = [], hi: number[] = [];
+  xs.forEach((v, i) => {
+    const at = read.map(r => r[i]).filter((n): n is number => n != null);
+    if (!at.length) return;
+    x.push(v); y.push(at.reduce((p, q) => p + q, 0) / at.length); lo.push(Math.min(...at)); hi.push(Math.max(...at));
+  });
+  return { label, slot, x, y, lo, hi, members: members.length };
 }
 
-function readout(cols: Col[], xLabel: string, onHover?: (x: number | null, values: (number | null)[]) => void): uPlot.Plugin {
-  let tip: HTMLDivElement, near = -1;
+function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values: (number | null)[]) => void, quiet: boolean): uPlot.Plugin {
+  let tip: HTMLDivElement, near = -1, inside = false;
   const show = (u: uPlot) => {
     const { left, idx } = u.cursor;
-    if (idx == null || left == null || left < 0) { tip.hidden = true; onHover?.(null, []); return; }
+    if (idx == null || left == null || left < 0) { tip.hidden = true; onHover(null, []); return; }
     const rows: { label: string; colour: string; v: number; i: number }[] = [];
     const values: (number | null)[] = [];
     cols.forEach((c, i) => {
@@ -59,7 +74,7 @@ function readout(cols: Col[], xLabel: string, onHover?: (x: number | null, value
       values[c.line] = v ?? null;
       if (v != null) rows.push({ label: c.label, colour: c.colour, v, i: i + 1 });
     });
-    onHover?.(u.data[0][idx], values);
+    onHover(u.data[0][idx], values);
     tip.replaceChildren();
     const head = document.createElement("div"); head.className = "x"; head.textContent = `${xLabel} ${fmt(u.data[0][idx])}`;
     tip.append(head);
@@ -70,14 +85,20 @@ function readout(cols: Col[], xLabel: string, onHover?: (x: number | null, value
       const name = document.createElement("span"); name.textContent = r.label;
       row.append(key, val, name); tip.append(row);
     }
-    tip.hidden = !!onHover;                                 // the inspector shows these in its table instead
+    // Every chart on the page follows the pointer with its hairline and dots; only the one under the pointer
+    // spells the values out, or seven boxes would open at once. The inspector shows them in its table instead.
+    tip.hidden = quiet || !inside;
     const over = u.over, w = tip.offsetWidth, x = over.offsetLeft + left;
     tip.style.left = (x + 16 + w > u.root.clientWidth ? Math.max(0, x - w - 16) : x + 16) + "px";
     tip.style.top = over.offsetTop + 2 + "px";
   };
   return {
     hooks: {
-      init: u => { tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; u.root.appendChild(tip); },
+      init: u => {
+        tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; u.root.appendChild(tip);
+        u.over.addEventListener("mouseenter", () => { inside = true; });
+        u.over.addEventListener("mouseleave", () => { inside = false; tip.hidden = true; });
+      },
       setCursor: show,
       setSeries: (u, i) => { near = i ?? -1; show(u); },
     },
@@ -187,7 +208,7 @@ export function Chart({ lines, xLabel, logY, smooth, syncKey, height, theme, ran
         // A drag across one chart is a zoom for every chart; the others are told and follow.
         setSelect: [uu => { if (uu.select.width > 3) live.current.onRange?.([uu.posToVal(uu.select.left, "x"), uu.posToVal(uu.select.left + uu.select.width, "x")]); }],
       },
-      plugins: [endDots(cols, page), readout(cols, xLabel, (x, v) => live.current.onHover?.(x, v))],
+      plugins: [endDots(cols, page), readout(cols, xLabel, (x, v) => live.current.onHover?.(x, v), !!live.current.onHover)],
     }, data, el);
     const reset = () => live.current.onRange?.(null);
     u.over.addEventListener("dblclick", reset);
@@ -266,7 +287,7 @@ function Inspector({ name, lines, xLabel, logY, view, sync, close }:
             <th className="num">latest</th><th className="num">lowest</th><th className="num">highest</th></tr></thead>
           <tbody>{lines.map((l, i) => (
             <tr key={i} className={off.has(i) ? "off" : ""} onClick={e => pick(i, e.altKey)} title="click to hide or show; alt-click to see it alone">
-              <td><i className="swatch" style={{ background: l.slot ? `var(--s${l.slot})` : "var(--faint)" }} />{l.label}{l.members ? <span className="muted"> mean of {l.members}</span> : null}</td>
+              <td><i className="swatch" style={{ background: l.slot ? `var(--s${l.slot})` : "var(--faint)" }} />{l.label}{(l.members ?? 0) > 1 ? <span className="muted"> mean of {l.members} runs</span> : null}</td>
               <td className="num strong">{fmt(at.values[i])}</td>
               <td className="num">{fmt(stats[i].last)} <span className="muted">at {fmt(stats[i].lastAt)}</span></td>
               <td className="num">{fmt(isFinite(stats[i].lo) ? stats[i].lo : null)} <span className="muted">at {fmt(stats[i].loAt)}</span></td>
@@ -280,8 +301,8 @@ function Inspector({ name, lines, xLabel, logY, view, sync, close }:
 }
 
 /* One chart in the grid: fetches its own numbers once it scrolls into view, and again when the runs grow. */
-export function Panel({ name, title, runs, view, onHide, sync }:
-  { name: string; title?: string; runs: Drawn[]; view: View; onHide?: () => void; sync?: string }) {
+export function Panel({ name, title, runs, view, onHide, sync, height = 200, pinned, onPin }:
+  { name: string; title?: string; runs: Drawn[]; view: View; onHide?: () => void; sync?: string; height?: number; pinned?: boolean; onPin?: () => void }) {
   const [ref, seen] = useSeen<HTMLElement>();
   const [data, setData] = useState<Record<string, Record<string, Series>> | null>(null);
   // "#/?inspect=<name>" opens that chart's inspector straight away, so a link can point at one chart
@@ -315,17 +336,18 @@ export function Panel({ name, title, runs, view, onHide, sync }:
         <span className="tools">
           <button aria-pressed={logY} title="log scale on the y axis" onClick={() => view.setLog(name, !logY)}>log</button>
           <button title="open large, with a table of every run's latest, lowest and highest" aria-label={`inspect ${name}`} onClick={() => setBig(true)}>inspect</button>
+          {onPin && <button aria-pressed={!!pinned} title={pinned ? "Take this chart out of Pinned" : "Keep this chart in the Pinned section at the top"} onClick={onPin}>{pinned ? "pinned" : "pin"}</button>}
           {onHide && <button title="hide this chart" aria-label={`hide ${name}`} onClick={onHide}>hide</button>}
         </span>
       </figcaption>
       {data
-        ? <Chart lines={lines} xLabel={xLabel} logY={logY} smooth={view.smooth} syncKey={sync} height={200} theme={view.theme}
+        ? <Chart lines={lines} xLabel={xLabel} logY={logY} smooth={view.smooth} syncKey={sync} height={height} theme={view.theme}
             range={x === "_t" ? undefined : view.range} onRange={x === "_t" ? undefined : view.setRange} trim={view.trim} />
-        : <div className="empty" style={{ height: 200 }} />}
+        : <div className="empty" style={{ height }} />}
       {big && <Inspector name={name} lines={lines} xLabel={xLabel} logY={logY} view={view} sync={sync} close={close} />}
     </figure>
   );
 }
 
-export const asDrawn = (runs: Run[], slots: Record<string, number>, groupOf?: (r: Run) => string): Drawn[] =>
-  runs.map(r => ({ id: r.id, name: r.name, slot: slots[groupOf ? groupOf(r) : r.id] ?? 0, group: groupOf?.(r) }));
+export const asDrawn = (runs: Run[], slots: Record<string, number>, groupOf?: (r: Run) => string, groupName = ""): Drawn[] =>
+  runs.map(r => ({ id: r.id, name: r.name, slot: slots[groupOf ? groupOf(r) : r.id] ?? 0, group: groupOf ? `${groupName} ${groupOf(r)}`.trim() : undefined }));

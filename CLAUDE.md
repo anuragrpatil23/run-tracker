@@ -43,3 +43,8 @@ between the three parts.
     python3 -m unittest discover tests
     (cd web && npm run build)          # type-checks, then builds
     rt view --port 8791 --no-open      # then look at it in a browser
+
+To click through the app without a person: `node web/scripts/drive.mjs <url> <screenshot-prefix>` drives
+headless Chrome and reads steps from stdin (`page.clickText`, `page.drag`, `page.js`, `page.shot`), then
+prints any page errors. Screenshots taken with Chrome's `--screenshot` flag alone come out with blank
+charts; use this instead.

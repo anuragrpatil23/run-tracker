@@ -1,6 +1,7 @@
 /* The workspace: the runs down the left, and what they logged on the right. Ticking a run draws it on every chart. */
 import { useMemo, useState } from "react";
-import { asDrawn, Panel, View } from "./Chart";
+import { asDrawn, View } from "./Chart";
+import { ChartSections } from "./Sections";
 import { api, differing, dur, enc, fmt, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
 
 /* The state of a run as a mark and a word. The marks are not dots: on this page a coloured dot is a run. */
@@ -20,8 +21,7 @@ export function Workspace({ runs, theme, say }: Shared) {
   const [x, setX] = useStored("x", "step");
   const [smooth, setSmooth] = useStored("smooth", 0);
   const [logs, setLogs] = useStored<Record<string, boolean>>("logs", {});
-  const [hidden, setHidden] = useStored<string[]>("hiddenPanels", []);
-  const [narrow, setNarrow] = useStored("listNarrow", false);
+  const [railHidden, setRailHidden] = useStored("railHidden", false);
   const [trim, setTrim] = useStored("trim", false);
   const [bundled, setBundled] = useStored("bundled", false);
   const [range, setRange] = useState<[number, number] | null>(null);
@@ -44,7 +44,7 @@ export function Workspace({ runs, theme, say }: Shared) {
   const asGroups = bundled && !!groupBy;
   const slots = useSlots(asGroups ? [...new Set(drawnRuns.map(groupOf))] : drawnRuns.map(r => r.id));
   const slotOf = (r: Run) => slots[asGroups ? groupOf(r) : r.id] ?? 0;
-  const drawn = useMemo(() => asDrawn(drawnRuns, slots, asGroups ? groupOf : undefined), [drawnRuns, slots, asGroups, groupBy]);
+  const drawn = useMemo(() => asDrawn(drawnRuns, slots, asGroups ? groupOf : undefined, groupBy), [drawnRuns, slots, asGroups, groupBy]);
   const lineCount = asGroups ? new Set(drawnRuns.map(groupOf)).size : drawnRuns.length;
   const isOn = (id: string) => drawnRuns.some(r => r.id === id);
   const toggle = (ids: string[], on: boolean) => {
@@ -76,8 +76,6 @@ export function Workspace({ runs, theme, say }: Shared) {
   const plain = numbers.filter(k => !k.startsWith("sys/") && !k.includes(".") && !clocks.includes(k));
   const nested = new Map<string, string[]>();
   for (const k of numbers) if (!k.startsWith("sys/") && k.includes(".")) { const g = k.split(".")[0]; nested.set(g, [...(nested.get(g) ?? []), k]); }
-  const machine = numbers.filter(k => k.startsWith("sys/"));
-  const visible = (list: string[]) => list.filter(k => !hidden.includes(k));
 
   // Under each name, the settings that tell these runs apart: short ones, and at most three.
   const sub = diff.filter(k => shown.every(r => String(r.settings[k] ?? "").length <= 14)).slice(0, 3);
@@ -85,25 +83,27 @@ export function Workspace({ runs, theme, say }: Shared) {
     if (!groupBy) return [["", shown] as [string, Run[]]];
     const m = new Map<string, Run[]>();
     for (const r of shown) { const g = groupOf(r); m.set(g, [...(m.get(g) ?? []), r]); }
-    return [...m].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+    const n = (s: string) => Number(s.replace(/,/g, ""));                       // 0.05 before 0.2: as numbers where they are numbers
+    return [...m].sort((a, b) => (isFinite(n(a[0])) && isFinite(n(b[0])) ? n(a[0]) - n(b[0]) : a[0].localeCompare(b[0], undefined, { numeric: true })));
   }, [shown, groupBy]);
 
   async function exportPage() {
     const title = prompt("Title for the page", `Comparing ${drawnRuns.length} runs`);
     if (!title) return;
     try {
-      const r = await api("/api/export", { title, file: title, runs: drawnRuns.map(r => r.id), x: xNow === "_t" ? "_t" : xNow, charts: visible(plain).map(f => ({ field: f, logY: logs[f] })) });
+      const r = await api("/api/export", { title, file: title, runs: drawnRuns.map(r => r.id), x: xNow === "_t" ? "_t" : xNow, charts: plain.map(f => ({ field: f, logY: logs[f] })) });
       say("Saved to " + r.path);
     } catch (e: any) { say(e.message); }
   }
 
   return (
-    <div className={"workspace" + (narrow ? " narrow" : "")}>
-      <aside className="runs" aria-label="Runs">
+    <div className={"workspace" + (railHidden ? " solo" : "")}>
+      {!railHidden && <aside className="runs" aria-label="Runs">
         <div className="row">
-          <input type="search" className="grow" placeholder="Filter runs: a name, a tag, lam=0.2" value={filter} aria-label="Filter the runs" onChange={e => setFilter(e.target.value)} />
-          <button className="small ghost" title={narrow ? "Widen the list" : "Narrow the list"} aria-label={narrow ? "Widen the list" : "Narrow the list"} onClick={() => setNarrow(!narrow)}>{narrow ? "›" : "‹"}</button>
+          <h2>Runs</h2><span className="muted small">The dot draws a run or hides it</span><span className="grow" />
+          <button className="small ghost" title="Hide this list and give the charts the whole width" onClick={() => setRailHidden(true)}>Hide</button>
         </div>
+        <input type="search" placeholder="Filter runs: a name, a tag, lam=0.2" value={filter} aria-label="Filter the runs" onChange={e => setFilter(e.target.value)} />
         <div className="row small muted">
           <label className="inline">Group by<select value={groupBy} onChange={e => setGroupBy(e.target.value)}>
             <option value="">nothing</option><option value="source">source</option><option value="project">project</option><option value="state">state</option>
@@ -138,10 +138,11 @@ export function Workspace({ runs, theme, say }: Shared) {
           ))}
           {!runs.length && <div className="muted small" style={{ padding: "14px 0" }}>No runs yet. Say where runs are written, then copy them:<pre>rt source add NAME --root /path/to/runs --ssh HOST{"\n"}rt sync</pre></div>}
         </div>
-      </aside>
+      </aside>}
 
       <section className="main">
         <div className="row toolbar">
+          {railHidden && <button className="small" title="Bring back the list of runs" onClick={() => setRailHidden(false)}>Runs ({drawnRuns.length} of {shown.length} drawn)</button>}
           <div className="tabs" role="tablist">
             {[["charts", "Charts"], ["table", "Table"], ["settings", "Settings"], ["sweep", "Against a setting"]].map(([k, label]) =>
               <button key={k} role="tab" aria-selected={tab === k} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
@@ -158,23 +159,7 @@ export function Workspace({ runs, theme, say }: Shared) {
           </>}
         </div>
 
-        {tab === "charts" && (drawn.length === 0 ? <p className="muted">Tick runs on the left to draw them.</p> : <>
-          <div className="grid">{visible(plain).map(k => <Panel key={k} name={k} runs={drawn} view={view} sync="ws" onHide={() => setHidden([...hidden, k])} />)}</div>
-          {[...nested].map(([g, list]) => (
-            <details key={g} className="section" open={list.length <= 6}>
-              <summary>{g} <span className="muted">{list.length} numbers</span></summary>
-              <div className="grid">{visible(list).map(k => <Panel key={k} name={k} title={k.slice(g.length + 1)} runs={drawn} view={view} sync="ws" onHide={() => setHidden([...hidden, k])} />)}</div>
-            </details>
-          ))}
-          {machine.length > 0 && (
-            <details className="section">
-              <summary>The machine <span className="muted">{machine.length} numbers, against minutes since the run began</span></summary>
-              <div className="grid">{visible(machine).map(k => <Panel key={k} name={k} title={k.slice(4)} runs={drawn} view={view} sync="ws-sys" onHide={() => setHidden([...hidden, k])} />)}</div>
-            </details>
-          )}
-          {hidden.length > 0 && <p className="muted small row">Hidden charts, click to bring back: {hidden.map(k => <button key={k} className="small" onClick={() => setHidden(hidden.filter(h => h !== k))}>{k}</button>)}</p>}
-          {!numbers.length && keyMap && <p className="muted">These runs have logged no numbers yet.</p>}
-        </>)}
+        {tab === "charts" && <ChartSections numbers={numbers} clocks={clocks} runs={drawn} view={view} sync="ws" legend={railHidden} />}
 
         {tab === "table" && <RunTable runs={shown} diff={diff} metrics={plain} slotOf={slotOf} isOn={isOn} toggle={toggle} />}
         {tab === "settings" && <SettingsDiff runs={drawnRuns} slotOf={slotOf} />}
