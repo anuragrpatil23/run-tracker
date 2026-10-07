@@ -17,7 +17,8 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
   const [picked, setPicked] = useStored<string[] | null>("picked", null);
   const [storedTab, setTab] = useStored("tab", "charts");
   const [linked, setLinked] = useState(() => new URLSearchParams(location.hash.split("?")[1] ?? "").get("tab"));    // "#/?tab=table" opens on that tab
-  const tab = linked ?? storedTab;
+  const picked0 = linked ?? storedTab;
+  const tab = picked0 === "sweep" ? "settings" : picked0;                       // the sweep chart used to have a tab of its own
   const [x, setX] = useStored("x", "step");
   const [smooth, setSmooth] = useStored("smooth", 0);
   const [logs, setLogs] = useStored<Record<string, boolean>>("logs", {});
@@ -157,8 +158,7 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
         <div className="row toolbar">
           <div className="tabs" role="tablist">
             {[["charts", "Charts", "What the drawn runs logged, as charts"], ["table", "All runs", "Every run in a table, with how it was started and its latest numbers"],
-              ["settings", "Hyperparameters", "What each drawn run was started with, side by side: learning rate, size and so on"],
-              ["sweep", "Sweep", "One dot per run: a result against one hyperparameter, to see which value did best"]].map(([k, label, tip]) =>
+              ["settings", "Hyperparameters by run", "What each drawn run was started with, side by side, and a result against any one of them"]].map(([k, label, tip]) =>
               <button key={k} role="tab" aria-selected={tab === k} data-tip={tip} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
           </div>
           <span className="grow" />
@@ -177,7 +177,7 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
 
         {tab === "table" && <RunTable runs={shown} diff={diff} metrics={plain} slotOf={slotOf} isOn={isOn} toggle={toggle} />}
         {tab === "settings" && <SettingsDiff runs={drawnRuns} slotOf={slotOf} />}
-        {tab === "sweep" && <Sweep runs={drawnRuns} slotOf={slotOf} metrics={[...plain, ...[...nested.values()].flat()]} />}
+        {tab === "settings" && drawnRuns.length > 1 && <Sweep runs={drawnRuns} slotOf={slotOf} metrics={[...plain, ...[...nested.values()].flat()]} />}
       </section>
     </div>
   );
@@ -236,7 +236,7 @@ function Sweep({ runs, slotOf, metrics }: { runs: Run[]; slotOf: (r: Run) => num
   const varied = differing(runs).filter(k => numeric.includes(k));
   const setting = pick.setting && numeric.includes(pick.setting) ? pick.setting : varied[0] ?? numeric[0];
   const metric = pick.metric && metrics.includes(pick.metric) ? pick.metric : metrics[0];
-  if (!setting || !metric) return <p className="muted">Draw runs that have a hyperparameter that is a number, and that have logged numbers.</p>;
+  if (!setting || !metric) return null;
   const pts = runs.map(r => ({ x: r.settings[setting] as number, y: r.latest[metric], name: r.name, slot: slotOf(r) }))
     .filter(p => isNum(p.x) && isNum(p.y) && (!pick.logX || p.x > 0) && (!pick.logY || p.y > 0)).sort((a, b) => a.x - b.x);
   const W = 900, H = 380, m = { l: 70, r: 170, t: 16, b: 46 };
@@ -257,7 +257,9 @@ function Sweep({ runs, slotOf, metrics }: { runs: Run[]; slotOf: (r: Run) => num
   const px = scale(xs, m.l, W - m.r, pick.logX), py = scale(ys, H - m.b, m.t, pick.logY);
   let lastY = -99;
   return (
-    <div className="panel">
+    <div className="panel sweep">
+      <h2>A result against one hyperparameter</h2>
+      <p className="muted small">One dot per run. Useful when the runs differ mainly in the hyperparameter you choose here: it shows which value did best.</p>
       <div className="row end">
         <label>Hyperparameter<select value={setting} onChange={e => setPick({ ...pick, setting: e.target.value })}>{[...varied, ...numeric.filter(k => !varied.includes(k))].map(k => <option key={k}>{k}</option>)}</select></label>
         <label>Result (its latest value)<select value={metric} onChange={e => setPick({ ...pick, metric: e.target.value })}>{metrics.map(k => <option key={k}>{k}</option>)}</select></label>
