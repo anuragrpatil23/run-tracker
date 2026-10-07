@@ -1,6 +1,7 @@
 /* The workspace: the runs down the left, and what they logged on the right. Ticking a run draws it on every chart. */
 import { useMemo, useState } from "react";
 import { asDrawn, Modal, View } from "./Chart";
+import { Scan } from "./Scan";
 import { ChartSections } from "./Sections";
 import { api, differing, dur, enc, fmt, going, isAxis, isNum, KeyInfo, Run, runHref, slotVar, tick, usePoll, useSlots, useStored, when } from "./lib";
 
@@ -10,9 +11,9 @@ export const Badge = ({ run }: { run: Pick<Run, "state" | "why"> }) => <span cla
 
 export type Told = { about: Record<string, string>; setAbout: (name: string, text: string) => void;
   formulas: Record<string, { expr: string }>; saveFormula: (name: string, expr: string, about: string) => Promise<string | null> };
-type Shared = { runs: Run[]; theme: string; say: (text: string) => void } & Told;
+type Shared = { runs: Run[]; project: string; theme: string; say: (text: string) => void } & Told;
 
-export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFormula }: Shared) {
+export function Workspace({ runs, project, theme, say, about, setAbout, formulas, saveFormula }: Shared) {
   const [filter, setFilter] = useStored("filter", "");
   const [groupBy, setGroupBy] = useStored("groupBy", "");
   const [sortBy, setSortBy] = useStored("sortBy", "newest");
@@ -163,7 +164,8 @@ export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFor
         <div className="row toolbar">
           <div className="tabs" role="tablist">
             {[["charts", "Charts", "What the drawn runs logged, as charts"], ["table", "All runs", "Every run in a table, with how it was started and its latest numbers"],
-              ["settings", "Hyperparameters by run", "What each drawn run was started with, side by side, and a result against any one of them"]].map(([k, label, tip]) =>
+              ["settings", "Hyperparameters by run", "What each drawn run was started with, side by side, and a result against any one of them"],
+              ["scan", "Scan", "Type text, run it through a trained network, and see what lit up"]].map(([k, label, tip]) =>
               <button key={k} role="tab" aria-selected={tab === k} data-tip={tip} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
           </div>
           <span className="grow" />
@@ -181,6 +183,7 @@ export function Workspace({ runs, theme, say, about, setAbout, formulas, saveFor
         {tab === "charts" && <ChartSections numbers={numbers} clocks={clocks} runs={drawn} view={view} sync="ws" media={media} />}
 
         {tab === "table" && <RunTable runs={shown} diff={diff} metrics={plain} slotOf={slotOf} isOn={isOn} toggle={toggle} />}
+        {tab === "scan" && <Scan project={project} theme={theme} runs={runs} />}
         {tab === "settings" && <SettingsDiff runs={drawnRuns} slotOf={slotOf} />}
         {tab === "settings" && drawnRuns.length > 1 && <Sweep runs={drawnRuns} slotOf={slotOf} metrics={[...plain, ...[...nested.values()].flat()]} />}
       </section>

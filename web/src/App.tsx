@@ -100,7 +100,7 @@ export function App() {
         {!data ? <p className="muted">Loading…</p>
           : kind === "run" && arg ? <RunPage key={project + "/" + arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />
           : kind === "search" && arg ? <Search q={decodeURIComponent(arg)} runs={all} />
-          : <Workspace key={project} runs={runs} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />}
+          : <Workspace key={project} runs={runs} project={project} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />}
       </main>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

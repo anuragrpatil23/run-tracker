@@ -33,6 +33,10 @@ between the three parts.
   Descriptions and formulas live in `<data>/projects/<project>/`; what a reader sets up in the browser is
   remembered per project (`useStored` in `web/src/lib.ts`). Nothing in the code may assume one kind of
   model: test changes against the ordinary supervised runs too (train/val loss, accuracy, lr, epochs).
+- Scan: `runtracker/scan.py` keeps a scanner's address per project and passes requests on; `web/src/Scan.tsx`
+  is the view. The contract is `docs/scan.md`, agreed with the session that owns the scanner in Learn-AI; change
+  it there first. The view must not assume a kind of model: check it against `tests/toy_scanner.py` as well as
+  the real scanner.
 - `claude-workspace/` — working notes for this project.
 
 ## Rules

@@ -159,6 +159,26 @@ deleted at any time.
 
 The viewer listens on 127.0.0.1 only and has no accounts.
 
+## Scan: running text through a trained network
+
+The Scan tab of a project lets you type text, run it through a trained network, and see what lit
+up: a drawing of the network, a grid of the text's tokens against the strongest units at any step,
+one token's whole row as a strip, a page for any unit, two texts set against each other, and the
+same text through several saved snapshots of the weights.
+
+The running is done by a scanner, a separate program that belongs to the experiment and has the
+model and whatever library it needs. The tracker only shows what the scanner answers, over the
+contract in [docs/scan.md](docs/scan.md), and assumes nothing about what kind of network it is.
+
+```sh
+python scan_server.py --runs ~/run-tracker-data/runs --port 8790     # the experiment's scanner
+rt scan add myproject --url http://127.0.0.1:8790                    # tell the tracker where it is
+```
+
+A scanner must be on this machine: any other address is refused. Weights that are still on the
+cluster are listed in the tab with a button to fetch them. `tests/toy_scanner.py` is a complete
+scanner for a tiny made-up network in the standard library, to read or to start from.
+
 ## What it does not do
 
 It does not store weights, start or stop jobs, or run sweeps. It lists the weights and where
