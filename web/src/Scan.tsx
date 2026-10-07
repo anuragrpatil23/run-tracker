@@ -42,40 +42,43 @@ function Grid({ tokens, columns, values, heads, onUnit, label }:
   );
 }
 
-/* The network, drawn from what the scanner says: columns by order, rows by lane, a box round each group. */
-function Drawing({ graph, picked, pick, recorded }: { graph: Graph; picked: string; pick: (id: string) => void; recorded: Set<string> }) {
+/* The network, drawn from what the scanner says: columns by order, rows by lane, a box round each group.
+   Once text has been run, every step lights up: a strip of cells in its box, one per token, brighter where that
+   token's row at that step is larger. The token being looked at is outlined in every step at once. */
+function Drawing({ graph, picked, pick, heat, token }: { graph: Graph; picked: string; pick: (id: string) => void; heat: Record<string, number[]>; token: number }) {
   const orders = [...new Set(graph.nodes.map(n => n.order))].sort((a, b) => a - b);
   const lanes = [...new Set(graph.nodes.map(n => n.lane))].sort((a, b) => b - a);          // higher lanes are drawn above
-  const CW = 106, RH = 78, BW = 92, PX = 26, PY = 30;
+  const CW = 108, RH = 78, BW = 96, BH = 52, PX = 22, PY = 26;
   const at = (n: Node) => ({ x: PX + orders.indexOf(n.order) * CW, y: PY + lanes.indexOf(n.lane) * RH });
-  const tall = (n: Node) => 30 + 5 * Math.log10(Math.max(1, n.width ?? 1));               // wider steps are taller, on a compressed scale
   const byId = new Map(graph.nodes.map(n => [n.id, n]));
-  const W = PX * 2 + orders.length * CW - (CW - BW) + 70, H = PY * 2 + lanes.length * RH - 14;      // room at the right for the last label
+  const W = PX * 2 + orders.length * CW - (CW - BW), H = PY + lanes.length * RH - (RH - BH) + 12;
+  const short = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
   return (
     <div className="scroll drawing"><svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="group" aria-label={graph.title}>
       {(graph.groups ?? []).map(g => {
         const mine = graph.nodes.filter(n => n.group === g.id);
         if (!mine.length) return null;
         const xs = mine.map(n => at(n).x), ys = mine.map(n => at(n).y);
-        return <g key={g.id}><rect className="group" x={Math.min(...xs) - 10} y={Math.min(...ys) - 22} width={Math.max(...xs) - Math.min(...xs) + BW + 20} height={Math.max(...ys) - Math.min(...ys) + 72} rx={10} />
-          <text className="grouplabel" x={Math.min(...xs) - 2} y={Math.min(...ys) - 8}>{g.label}</text></g>;
+        return <g key={g.id}><rect className="group" x={Math.min(...xs) - 7} y={Math.min(...ys) - 19} width={Math.max(...xs) - Math.min(...xs) + BW + 14} height={Math.max(...ys) - Math.min(...ys) + BH + 26} rx={10} />
+          <text className="grouplabel" x={Math.min(...xs)} y={Math.min(...ys) - 6}>{g.label}</text></g>;
       })}
       {graph.edges.map((e, i) => {
         const a = byId.get(e.from), b = byId.get(e.to);
         if (!a || !b) return null;
-        const p = at(a), q = at(b), y1 = p.y + tall(a) / 2, y2 = q.y + tall(b) / 2, x1 = p.x + BW, x2 = q.x, mid = (x1 + x2) / 2;
-        return <path key={i} className={"edge " + (e.kind ?? "flow")} d={x2 > x1 ? `M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}` : `M${p.x + BW / 2} ${p.y + tall(a)} L${q.x + BW / 2} ${q.y}`} />;
+        const p = at(a), q = at(b), y1 = p.y + BH / 2, y2 = q.y + BH / 2, x1 = p.x + BW, x2 = q.x, mid = (x1 + x2) / 2;
+        return <path key={i} className={"edge " + (e.kind ?? "flow")} d={x2 > x1 ? `M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}` : `M${p.x + BW / 2} ${p.y + BH} L${q.x + BW / 2} ${q.y}`} />;
       })}
       {graph.nodes.map(n => {
-        const p = at(n), h = tall(n);
-        return <g key={n.id} className={"node" + (n.id === picked ? " picked" : "") + (recorded.has(n.id) ? " recorded" : "")} tabIndex={0} role="button" aria-pressed={n.id === picked}
+        const p = at(n), lit = heat[n.id], folded = n.kind === "collapsed";
+        const caption = folded ? "" : [n.kind === "linear+bend" ? n.bend ?? "bent" : n.kind === "other" ? "" : n.kind.replace(/-/g, " ").replace("weights over positions", "shares"), n.width ? fmt(n.width) : ""].filter(Boolean).join(" · ");
+        const cw = lit ? (BW - 12) / lit.length : 0;
+        return <g key={n.id} className={"node" + (n.id === picked ? " picked" : "") + (lit ? " recorded" : "")} tabIndex={0} role="button" aria-pressed={n.id === picked}
           aria-label={`${n.label}${n.width ? `, ${fmt(n.width)} ${n.unit ?? "unit"}s` : ""}`} onClick={() => pick(n.id)} onKeyDown={e => (e.key === "Enter" || e.key === " ") && pick(n.id)}>
-          <title>{[n.about, n.weights ? `${fmt(n.weights)} weights` : ""].filter(Boolean).join(" ")}</title>
-          <rect x={p.x} y={p.y} width={BW} height={h} rx={7} className={n.kind === "collapsed" ? "folded" : ""} />
-          {/* a step folded away stands for many: its box says so and its label goes underneath, where there is room */}
-          <text className="nodelabel" x={p.x + BW / 2} y={p.y + h / 2 + 4} textAnchor="middle">{n.kind === "collapsed" ? "· · ·" : n.label.length > 14 ? n.label.slice(0, 13) + "…" : n.label}</text>
-          <text className="nodekind" x={p.x + BW / 2} y={p.y + h + 14} textAnchor="middle">{n.kind === "collapsed" ? (n.label.length > 22 ? n.label.slice(0, 21) + "…" : n.label)
-            : [n.kind === "linear+bend" ? `linear, ${n.bend ?? "bent"}` : n.kind === "other" ? "" : n.kind.replace(/-/g, " "), n.width ? fmt(n.width) : ""].filter(Boolean).join(" · ")}</text>
+          <title>{[n.label + ".", n.about, n.weights ? `${fmt(n.weights)} weights.` : ""].filter(Boolean).join(" ")}</title>
+          <rect x={p.x} y={p.y} width={BW} height={BH} rx={8} className={folded ? "folded" : ""} />
+          <text className="nodelabel" x={p.x + BW / 2} y={p.y + (folded ? 22 : 18)} textAnchor="middle">{short(folded ? n.label.split(",")[0] : n.label, 15)}</text>
+          <text className="nodekind" x={p.x + BW / 2} y={p.y + (folded ? 36 : 31)} textAnchor="middle">{folded ? short(n.label.split(",").slice(1).join(",").trim(), 20) : caption}</text>
+          {lit && lit.map((v, i) => <rect key={i} className={"lit" + (i === token ? " now" : "")} x={p.x + 6 + i * cw} y={p.y + 38} width={Math.max(1, cw - 1)} height={8} rx={1.5} style={{ fillOpacity: 0.12 + 0.88 * v }} />)}
         </g>;
       })}
     </svg></div>
@@ -231,7 +234,15 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
 
   const result = results[primary];
   const picked = graph?.nodes.find(n => n.id === node);
-  const recorded = useMemo(() => new Set(Object.keys(result?.nodes ?? {})), [result]);
+  // how brightly each step lights for each token: the size of the token's row there, against the largest at that step
+  const heat = useMemo(() => {
+    const out: Record<string, number[]> = {};
+    for (const [id, n] of Object.entries(result?.nodes ?? {})) {
+      const sizes = n.size ?? (Array.isArray(n.grid) ? (n.grid as (number | null)[][]).map(row => Math.max(0, ...row.map(v => Math.abs(v ?? 0)))) : null);
+      if (sizes?.length) { const top = Math.max(1e-9, ...sizes); out[id] = sizes.map(v => v / top); }
+    }
+    return out;
+  }, [result]);
   const label = (id: string) => snapshots.find(s => s.id === id)?.label ?? id;
 
   /* What to put in the grid for a result at the chosen step: the scanner's own grid, or one pieced together from each
@@ -263,9 +274,6 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
   return (
     <div className="scan">
       <p className="muted small">{health.name}{health.device ? `, on ${health.device}` : ""}. A unit lighting up shows it is related to the text, not that it causes anything.</p>
-      {graph && <><h2>{graph.title}</h2><Drawing graph={graph} picked={node} pick={setNode} recorded={recorded} />
-        {picked && <p className="small"><b>{picked.label}.</b> <span className="muted">{picked.about ?? ""} {picked.width ? `${fmt(picked.width)} ${picked.unit ?? "unit"}s${picked.per === "token-pair" ? ", one for each pair of tokens" : " for each token"}.` : ""}</span></p>}</>}
-
       <div className="scanrun">
         <label>{contrasting ? "First text" : "Text"}<textarea value={text} onChange={e => setText(e.target.value)} rows={2} /></label>
         {contrasting && <label>Second text, to set against it<textarea value={other} onChange={e => setOther(e.target.value)} rows={2} /></label>}
@@ -293,6 +301,11 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
           {result.tokens.map(t => <button key={t.i} className="tok mono" aria-pressed={t.i === token} onClick={() => setToken(t.i)}>{showToken(t.text)}</button>)}
           {result.next?.length ? <span className="muted small">would write next: {result.next.slice(0, 3).map(n => `“${showToken(n.text)}” ${Math.round(n.chance * 100)}%`).join(", ")}</span> : null}
         </div>
+      </>}
+      {graph && <><div className="row"><h2>{graph.title}</h2><span className="muted small">{Object.keys(heat).length && !contrasting ? "Each step's strip has one cell per token, brighter where that token's row is larger. Click a step to look inside it." : "Click a step to look inside it. Run some text and every step lights up."}</span></div><Drawing graph={graph} picked={node} pick={setNode} heat={contrasting ? {} : heat} token={token} />
+        {picked && <p className="small"><b>{picked.label}.</b> <span className="muted">{picked.about ?? ""} {picked.width ? `${fmt(picked.width)} ${picked.unit ?? "unit"}s${picked.per === "token-pair" ? ", one for each pair of tokens" : " for each token"}.` : ""}</span></p>}</>}
+
+      {!contrasting && result && <>
         {Object.entries(results).map(([id, r]) => {
           const g = gridOf(r);
           return <section key={id} className="panel">
