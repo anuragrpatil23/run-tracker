@@ -157,8 +157,8 @@ export function Workspace({ runs, theme, say, about, setAbout }: Shared) {
         <div className="row toolbar">
           <div className="tabs" role="tablist">
             {[["charts", "Charts", "What the drawn runs logged, as charts"], ["table", "All runs", "Every run in a table, with how it was started and its latest numbers"],
-              ["settings", "What differs", "How the drawn runs were started, side by side: learning rate, size and so on"],
-              ["sweep", "Result by setting", "One dot per run: a result against one of the values the runs were started with"]].map(([k, label, tip]) =>
+              ["settings", "Hyperparameters", "What each drawn run was started with, side by side: learning rate, size and so on"],
+              ["sweep", "Sweep", "One dot per run: a result against one hyperparameter, to see which value did best"]].map(([k, label, tip]) =>
               <button key={k} role="tab" aria-selected={tab === k} data-tip={tip} onClick={() => { setLinked(null); setTab(k); }}>{label}</button>)}
           </div>
           <span className="grow" />
@@ -214,17 +214,17 @@ function SettingsDiff({ runs, slotOf }: { runs: Run[]; slotOf: (r: Run) => numbe
   const [all, setAll] = useState(false);
   const diff = differing(runs);
   const keys = all ? [...new Set(runs.flatMap(r => Object.keys(r.settings)))].sort() : diff;
-  if (!runs.length) return <p className="muted">Tick runs on the left to set their settings side by side.</p>;
+  if (!runs.length) return <p className="muted">Draw some runs to see their hyperparameters side by side.</p>;
   return (
     <div className="panel">
-      <div className="row"><h2>{all ? "Everything the runs were started with" : "What the runs were started with, where they differ"}</h2><span className="grow" />
+      <div className="row"><h2>{all ? "Every hyperparameter" : "The hyperparameters that differ between these runs"}</h2><span className="grow" />
         <button className="small" aria-pressed={all} onClick={() => setAll(!all)}>Show the ones that are the same too</button></div>
       <div className="scroll"><table>
-        <thead><tr><th>setting</th>{runs.map(r => <th key={r.id} className="num"><i className="swatch" style={{ background: slotVar(slotOf(r)) }} /><a href={runHref(r.id)}>{r.name}</a></th>)}</tr></thead>
+        <thead><tr><th>hyperparameter</th>{runs.map(r => <th key={r.id} className="num"><i className="swatch" style={{ background: slotVar(slotOf(r)) }} /><a href={runHref(r.id)}>{r.name}</a></th>)}</tr></thead>
         <tbody>{keys.map(k => <tr key={k} className={diff.includes(k) && all ? "sel" : ""}><td>{k}</td>
           {runs.map(r => <td key={r.id} className="num clip" title={String(r.settings[k] ?? "")}>{fmt(r.settings[k])}</td>)}</tr>)}</tbody>
       </table></div>
-      {!keys.length && <p className="muted">These runs were started with the same settings.</p>}
+      {!keys.length && <p className="muted">These runs were started with the same hyperparameters.</p>}
     </div>
   );
 }
@@ -236,7 +236,7 @@ function Sweep({ runs, slotOf, metrics }: { runs: Run[]; slotOf: (r: Run) => num
   const varied = differing(runs).filter(k => numeric.includes(k));
   const setting = pick.setting && numeric.includes(pick.setting) ? pick.setting : varied[0] ?? numeric[0];
   const metric = pick.metric && metrics.includes(pick.metric) ? pick.metric : metrics[0];
-  if (!setting || !metric) return <p className="muted">Tick runs that have a setting that is a number, and that have logged numbers.</p>;
+  if (!setting || !metric) return <p className="muted">Draw runs that have a hyperparameter that is a number, and that have logged numbers.</p>;
   const pts = runs.map(r => ({ x: r.settings[setting] as number, y: r.latest[metric], name: r.name, slot: slotOf(r) }))
     .filter(p => isNum(p.x) && isNum(p.y) && (!pick.logX || p.x > 0) && (!pick.logY || p.y > 0)).sort((a, b) => a.x - b.x);
   const W = 900, H = 380, m = { l: 70, r: 170, t: 16, b: 46 };
@@ -259,8 +259,8 @@ function Sweep({ runs, slotOf, metrics }: { runs: Run[]; slotOf: (r: Run) => num
   return (
     <div className="panel">
       <div className="row end">
-        <label>setting<select value={setting} onChange={e => setPick({ ...pick, setting: e.target.value })}>{[...varied, ...numeric.filter(k => !varied.includes(k))].map(k => <option key={k}>{k}</option>)}</select></label>
-        <label>number (its latest value)<select value={metric} onChange={e => setPick({ ...pick, metric: e.target.value })}>{metrics.map(k => <option key={k}>{k}</option>)}</select></label>
+        <label>Hyperparameter<select value={setting} onChange={e => setPick({ ...pick, setting: e.target.value })}>{[...varied, ...numeric.filter(k => !varied.includes(k))].map(k => <option key={k}>{k}</option>)}</select></label>
+        <label>Result (its latest value)<select value={metric} onChange={e => setPick({ ...pick, metric: e.target.value })}>{metrics.map(k => <option key={k}>{k}</option>)}</select></label>
         <button className="small" aria-pressed={!!pick.logX} onClick={() => setPick({ ...pick, logX: !pick.logX })}>log x</button>
         <button className="small" aria-pressed={!!pick.logY} onClick={() => setPick({ ...pick, logY: !pick.logY })}>log y</button>
       </div>
