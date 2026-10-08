@@ -10,17 +10,19 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BarData } from "./Bars3D";
 import { api, cssColour, enc, fmt, Run, sizeText, useStored } from "./lib";
-import { ContrastSheets, sheetParts, SheetView, StepSheet } from "./Sheet";
+import { ContrastSheets, rowOf, sheetParts, SheetView, StepSheet } from "./Sheet";
 
 /* three.js comes with the 3D drawing, and only when it is shown. If that piece cannot be fetched (the app was updated
    while this page stayed open, and the piece it knew about is gone), the drawing reports failure and the flat one is
    used; the page must not go down with it. */
 let goneWhy = "";
 function Gone(p: { onFail: (why: string) => void }) { useEffect(() => p.onFail(goneWhy), []); return null; }
-const Bars3D = lazy<typeof import("./Bars3D").default>(() => import("./Bars3D").catch(e => {
+const fetch3D = (tries: number): Promise<any> => import("./Bars3D").catch(e => {
+  if (tries > 0) return new Promise(r => setTimeout(r, 500)).then(() => fetch3D(tries - 1));       // a fetch can fail once for no lasting reason
   goneWhy = "the part of the app that draws it could not be fetched (" + String(e?.message ?? e).slice(0, 120) + "). Reloading the page usually fixes that";
   return { default: Gone as any };
-}));
+});
+const Bars3D = lazy<typeof import("./Bars3D").default>(() => fetch3D(2));
 
 type Node = { id: string; label: string; about?: string; group?: string | null; kind: string; width?: number; each?: number; per?: string; lane: number; order: number;
   weights?: number; unit?: string; bend?: string; sparse?: boolean; described?: boolean };
@@ -108,9 +110,8 @@ function Strip({ project, run, node, token, theme, width }: { project: string; r
   useEffect(() => {
     let alive = true;
     // the scanner hands over at most 4,096 units at a time; a wide step is asked for in pieces
-    const pieces = Array.from({ length: Math.min(16, Math.max(1, Math.ceil(width / 4096))) }, (_, i) =>
-      fetch(`/api/v2/scan/${enc(project)}/values?run=${enc(run)}&node=${enc(node)}&token=${token}&from=${i * 4096}&count=4096`).then(r => r.json()));
-    Promise.all(pieces).then(parts => {
+    rowOf(project, run, node, token, width).then(row => {
+      const parts = [{ values: row.values, usual: row.usual }];
       const c = ref.current;
       if (!alive || !c || !parts[0].values) return;
       const d = { values: parts.flatMap(p => p.values ?? []), usual: parts.every(p => p.usual) ? parts.flatMap(p => p.usual) : null, count: 0 };

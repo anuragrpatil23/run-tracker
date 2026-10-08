@@ -44,8 +44,17 @@ def watch_loop(every):
         time.sleep(every if going or going is None else max(every, 300))
 
 
+class Server(ThreadingHTTPServer):
+    """The viewer's server. A page asks for many things at once (a chart each, a sheet in pieces, a part of the app),
+    and the standard server holds only five connections waiting before it turns the rest away, which the browser
+    reports as a failed fetch. This one holds plenty, and lets a connection be used for more than one request."""
+    request_queue_size = 256
+    daemon_threads = True
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "run-tracker"
+    protocol_version = "HTTP/1.1"             # every reply states its length, so a connection can be kept open and reused
 
     def log_message(self, *a):
         pass
@@ -204,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(port=8787, watch=None, open_browser=True):
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    httpd = Server(("127.0.0.1", port), Handler)
     url = "http://127.0.0.1:%d/" % port
     print("run tracker at %s   (runs are read from %s; ctrl-c to stop)" % (url, store.runs_dir()))
     if watch:

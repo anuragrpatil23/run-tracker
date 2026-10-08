@@ -31,8 +31,10 @@ export function sheetParts(graph: SheetGraph | null) {
 
 /* One token's whole row at a step, asked for in pieces of 4,096, which is the most a scanner hands over at once. */
 export async function rowOf(project: string, run: string, node: string, token: number, width: number): Promise<Row> {
-  const parts = await Promise.all(Array.from({ length: Math.max(1, Math.ceil(width / 4096)) }, (_, i) =>
-    fetch(`/api/v2/scan/${enc(project)}/values?run=${enc(run)}&node=${enc(node)}&token=${token}&from=${i * 4096}&count=4096`).then(r => r.json())));
+  // one piece after another, not all at once: a scanner is a small server and should not be sent a burst
+  const parts: any[] = [];
+  for (let i = 0; i < Math.max(1, Math.ceil(width / 4096)); i++)
+    parts.push(await fetch(`/api/v2/scan/${enc(project)}/values?run=${enc(run)}&node=${enc(node)}&token=${token}&from=${i * 4096}&count=4096`).then(r => r.json()));
   if (parts.some(p => p.error)) throw new Error(parts.find(p => p.error).error.message);
   return { values: parts.flatMap(p => p.values ?? []), usual: parts.every(p => p.usual) ? parts.flatMap(p => p.usual) : null };
 }

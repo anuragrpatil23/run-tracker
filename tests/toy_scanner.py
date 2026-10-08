@@ -148,7 +148,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(port=0):
     """Start the toy scanner on 127.0.0.1. Port 0 lets the system choose one; the server it returns says which."""
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    class Server(ThreadingHTTPServer):
+        request_queue_size = 128
+        daemon_threads = True
+    return Server(("127.0.0.1", port), Handler)
 
 
 if __name__ == "__main__":
