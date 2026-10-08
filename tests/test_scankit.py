@@ -60,6 +60,9 @@ class Kit(unittest.TestCase):
         self.assertTrue(all(p["product"] > 0 for p in t["top"]) and all(p["product"] < 0 for p in t["bottom"]))
         self.assertAlmostEqual(sum(p["product"] for p in t["top"] + t["bottom"]) + t["rest"] + t["intercept"], t["sum"], places=3)
         self.assertAlmostEqual(t["sum"], mix["top"][1][0][1], places=3)                                  # the sum is the value shown, since it is above zero
+        full = kit.unit(snap, "mix", u, r["run"], 1, whole=True)["terms"]
+        self.assertEqual((len(full["weights"]), len(full["inputs"]), "weights" in t), (26, 26, False))
+        self.assertEqual(len(r["nodes"]["letters"]["head"][0]), 26); self.assertNotIn("head", mix)        # first units in order; not for a sparse step
         self.assertNotIn("terms", kit.unit(snap, "letters", 0, r["run"], 1))                              # not a weighted sum: nothing to split
         for bad, code in ((lambda: kit.unit(snap, "mix", 99), "unknown_unit"), (lambda: kit.values("nope", "mix", 0, 0, 1), "unknown_run"),
                           (lambda: kit.contrast("a b", "a", snap, "mix"), "bad_request"), (lambda: kit.run(" ".join(["w"] * 99), snap), "too_long")):
