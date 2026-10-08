@@ -189,7 +189,7 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
   const [node, setNode] = useState("");
   const [token, setToken] = useState(0);
   const [pair, setPair] = useState<number | null>(null);
-  const [wantSolid, setSolid] = useStored("scan.solid", true);          // the drawing as bars in three dimensions, or flat
+  const [wantSolid, setSolid] = useStored("scan.bars", true);          // the drawing as bars in three dimensions, or flat
   const [flatOnly, setFlatOnly] = useState(false);                      // set when the 3D drawing failed on this page; the choice itself is kept
   const solid = wantSolid && !flatOnly;
   const [opened, setOpened] = useState<{ node: string; token: number } | null>(null);   // the row of a bar that is open as a sheet
