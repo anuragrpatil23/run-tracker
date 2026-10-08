@@ -12,7 +12,11 @@ import type { BarData } from "./Bars3D";
 import { api, cssColour, enc, fmt, Run, sizeText, useStored } from "./lib";
 import { ContrastSheets, sheetParts, SheetView, StepSheet } from "./Sheet";
 
-const Bars3D = lazy(() => import("./Bars3D"));       // three.js comes with it, and only when the drawing is shown
+/* three.js comes with the 3D drawing, and only when it is shown. If that piece cannot be fetched (the app was updated
+   while this page stayed open, and the piece it knew about is gone), the drawing reports failure and the flat one is
+   used; the page must not go down with it. */
+function Gone(p: { onFail: () => void }) { useEffect(() => p.onFail(), []); return null; }
+const Bars3D = lazy<typeof import("./Bars3D").default>(() => import("./Bars3D").catch(() => ({ default: Gone as any })));
 
 type Node = { id: string; label: string; about?: string; group?: string | null; kind: string; width?: number; each?: number; per?: string; lane: number; order: number;
   weights?: number; unit?: string; bend?: string; sparse?: boolean; described?: boolean };
@@ -185,7 +189,9 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
   const [node, setNode] = useState("");
   const [token, setToken] = useState(0);
   const [pair, setPair] = useState<number | null>(null);
-  const [solid, setSolid] = useStored("scan.solid", true);              // the drawing as bars in three dimensions, or flat
+  const [wantSolid, setSolid] = useStored("scan.solid", true);          // the drawing as bars in three dimensions, or flat
+  const [flatOnly, setFlatOnly] = useState(false);                      // set when the 3D drawing failed on this page; the choice itself is kept
+  const solid = wantSolid && !flatOnly;
   const [opened, setOpened] = useState<{ node: string; token: number } | null>(null);   // the row of a bar that is open as a sheet
   const [heads, setHeads] = useState<Record<string, number[][]>>({});               // which pair of tokens the two sheets show
   const [unit, setUnit] = useState<{ node: string; unit: number } | null>(null);
@@ -397,7 +403,7 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
         <span className="grow" />{result && !contrasting && <div className="seg" role="group" aria-label="How the network is drawn">
           <button className="small" aria-pressed={solid} onClick={() => setSolid(true)}>Bars</button><button className="small" aria-pressed={!solid} onClick={() => setSolid(false)}>Flat</button></div>}</div>{solid && result && !contrasting
         ? <Suspense fallback={<div className="bars3d"><div className="stage" /></div>}><Bars3D graph={graph} bars={bars} tokens={tokenTexts} token={token} picked={node} theme={theme}
-            onFail={() => { setSolid(false); setSaid("This browser cannot draw in three dimensions, so the network is shown flat."); }}
+            onFail={() => { setFlatOnly(true); setSaid("The three-dimensional drawing could not be shown here, so the network is drawn flat. If the app has been updated, reloading the page brings it back."); }}
             onTile={(id, t, u) => { setNode(id); setToken(t); setOpened(graph.nodes.find(n => n.id === id)?.per === "token-pair" ? null : { node: id, token: t }); if (u != null) setUnit({ node: id, unit: u }); }} /></Suspense>
         : <Drawing graph={graph} picked={node} pick={setNode} heat={contrasting ? {} : heat} token={token} />}
         {solid && result && !contrasting && opened && graph.nodes.find(n => n.id === opened.node)?.width

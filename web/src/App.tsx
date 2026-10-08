@@ -2,7 +2,7 @@
      #/                 the workspace
      #/run/<id>         one run
      #/search/<text>    the words logged in every run */
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { Component, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { api, dur, enc, fmt, Run, runHref, setScope, SyncState, useHash, usePoll, useStored } from "./lib";
 import { RunPage, Word } from "./RunPage";
 import { Workspace } from "./Workspace";
@@ -34,6 +34,25 @@ function Search({ q, runs }: { q: string; runs: Run[] }) {
         </section>))}
     </div>
   );
+}
+
+/* If something on a page throws while it is being drawn, that page says so and offers a way on. Without this, one
+   mistake anywhere takes the whole app down to a blank window. A change of address tries again. */
+class Guard extends Component<{ at: string; children: React.ReactNode }, { error: Error | null; at: string }> {
+  state = { error: null as Error | null, at: this.props.at };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  static getDerivedStateFromProps(props: { at: string }, state: { at: string }) { return props.at !== state.at ? { error: null, at: props.at } : null; }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="panel" style={{ maxWidth: "70ch" }}>
+        <h2>This page ran into a problem</h2>
+        <p className="muted">Nothing is lost: the runs and everything about them are in files, and this is only the page that shows them. Reloading usually clears it. If it keeps happening on the same page, the line below says what went wrong.</p>
+        <pre>{String(this.state.error.message || this.state.error)}</pre>
+        <div className="row"><button aria-pressed="true" onClick={() => location.reload()}>Reload</button><button onClick={() => { location.hash = "#/"; }}>Back to the runs</button></div>
+      </div>
+    );
+  }
 }
 
 export function App() {
@@ -100,12 +119,12 @@ export function App() {
       </nav>
       {BUILD && data?.build && data.build !== BUILD && <div className="newer" role="status">
         The app has been updated since this page was opened. <button className="small" onClick={() => location.reload()}>Reload to get the new version</button></div>}
-      <main>
+      <main><Guard at={hash}>
         {!data ? <p className="muted">Loading…</p>
           : kind === "run" && arg ? <RunPage key={project + "/" + arg} id={arg} query={new URLSearchParams(qs ?? "")} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />
           : kind === "search" && arg ? <Search q={decodeURIComponent(arg)} runs={all} />
           : <Workspace key={project} runs={runs} project={project} theme={shownTheme} say={say} about={about} setAbout={setAbout} formulas={formulas} saveFormula={saveFormula} />}
-      </main>
+      </Guard></main>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
