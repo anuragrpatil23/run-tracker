@@ -24,7 +24,7 @@ const TILE = 1, GAP = 0.18, STEP = TILE + GAP;
 
 export default function Bars3D({ graph, bars, tokens, token, picked, onTile, theme, onFail }:
   { graph: BarGraph; bars: Record<string, BarData>; tokens: string[]; token: number; picked: string;
-    onTile: (node: string, token: number, unit: number | null) => void; theme: string; onFail: () => void }) {
+    onTile: (node: string, token: number, unit: number | null) => void; theme: string; onFail: (why: string) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const labels = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ x: number; y: number; text: string[] } | null>(null);
@@ -41,7 +41,7 @@ export default function Bars3D({ graph, bars, tokens, token, picked, onTile, the
     // A browser with no 3D drawing (some remote desktops, some locked-down machines) gets the flat drawing instead.
     let renderer: THREE.WebGLRenderer;
     try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); }
-    catch { live.current.onFail(); return; }
+    catch (e: any) { live.current.onFail("this browser would not start 3D drawing (WebGL): " + String(e?.message ?? e).split("\n")[0].slice(0, 160)); return; }
     renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1)); renderer.setSize(W, H);
     el.appendChild(renderer.domElement);
     scene.add(new THREE.AmbientLight(0xffffff, 1.5));

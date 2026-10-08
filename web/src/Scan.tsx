@@ -15,8 +15,12 @@ import { ContrastSheets, sheetParts, SheetView, StepSheet } from "./Sheet";
 /* three.js comes with the 3D drawing, and only when it is shown. If that piece cannot be fetched (the app was updated
    while this page stayed open, and the piece it knew about is gone), the drawing reports failure and the flat one is
    used; the page must not go down with it. */
-function Gone(p: { onFail: () => void }) { useEffect(() => p.onFail(), []); return null; }
-const Bars3D = lazy<typeof import("./Bars3D").default>(() => import("./Bars3D").catch(() => ({ default: Gone as any })));
+let goneWhy = "";
+function Gone(p: { onFail: (why: string) => void }) { useEffect(() => p.onFail(goneWhy), []); return null; }
+const Bars3D = lazy<typeof import("./Bars3D").default>(() => import("./Bars3D").catch(e => {
+  goneWhy = "the part of the app that draws it could not be fetched (" + String(e?.message ?? e).slice(0, 120) + "). Reloading the page usually fixes that";
+  return { default: Gone as any };
+}));
 
 type Node = { id: string; label: string; about?: string; group?: string | null; kind: string; width?: number; each?: number; per?: string; lane: number; order: number;
   weights?: number; unit?: string; bend?: string; sparse?: boolean; described?: boolean };
@@ -403,7 +407,7 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
         <span className="grow" />{result && !contrasting && <div className="seg" role="group" aria-label="How the network is drawn">
           <button className="small" aria-pressed={solid} onClick={() => setSolid(true)}>Bars</button><button className="small" aria-pressed={!solid} onClick={() => setSolid(false)}>Flat</button></div>}</div>{solid && result && !contrasting
         ? <Suspense fallback={<div className="bars3d"><div className="stage" /></div>}><Bars3D graph={graph} bars={bars} tokens={tokenTexts} token={token} picked={node} theme={theme}
-            onFail={() => { setFlatOnly(true); setSaid("The three-dimensional drawing could not be shown here, so the network is drawn flat. If the app has been updated, reloading the page brings it back."); }}
+            onFail={why => { setFlatOnly(true); setSaid(`The network is drawn flat, because ${why}.`); }}
             onTile={(id, t, u) => { setNode(id); setToken(t); setOpened(graph.nodes.find(n => n.id === id)?.per === "token-pair" ? null : { node: id, token: t }); if (u != null) setUnit({ node: id, unit: u }); }} /></Suspense>
         : <Drawing graph={graph} picked={node} pick={setNode} heat={contrasting ? {} : heat} token={token} />}
         {solid && result && !contrasting && opened && graph.nodes.find(n => n.id === opened.node)?.width
