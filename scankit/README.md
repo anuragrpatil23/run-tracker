@@ -37,7 +37,8 @@ use NaN for a cell that has no value.
 
 Optional, on the same class: `next(ids)` for what the model would write next, `words(snapshot, node, units)`
 for what units respond to, `usual(snapshot, node)` for each unit's usual level, `unit(snapshot, node, unit)`
-for a unit's page, `step_of(path)` if the step is not the last number in a file's name, and `others()` for
+for a unit's page, `terms(snapshot, node, unit, rows)` to say what a unit of a weighted-sum step reads, its weights
+and its intercept (the kit then splits the unit's value for one token into its largest products), `step_of(path)` if the step is not the last number in a file's name, and `others()` for
 weights that belong to no run.
 
 ## What the kit does

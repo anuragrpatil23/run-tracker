@@ -284,6 +284,56 @@ Two helpers on top of that. One for PyTorch models, so the forward pass need not
 
 **How to know it works.** The small made-up scanner in the tracker's tests becomes the kit's worked example. The GPT-2 scanner in `Learn-AI` is rewritten on the kit and must give the same recorded replies as before, in about a third of the code.
 
+## The drawing in three dimensions, joined to the sheet
+
+Added 2026-10-08. Not built.
+
+**What it is for.** There are two pictures today and the reader joins them in his head. The three-dimensional drawing in the vault (`Interpretability/diagrams/gpt-with-sparse-network.html`) shows how each number is made, for a fixed set of prompts and only 16 or 32 of a step's columns. The sheet shows every unit of a step for any text and says nothing about where a square came from. One token's row in a bar of the drawing and that token's sheet are the same numbers, laid out as a long row in one and folded into a square in the other. Putting the drawing in the Scan view and making that fold visible does the joining on the screen.
+
+**What the reader does.**
+
+1. Sees the network as bars in three dimensions, one bar per step, tokens down the side and columns across, fed by the live scanner so that it shows whatever text was run.
+2. Clicks a token's row in any bar. The row opens as that step's sheet, with a short fold so it is plain that they are the same numbers. A bar draws only some of its columns and says how many; the sheet has all of them.
+3. Clicks a square on the sheet, or a cell in a bar. The unit's close-up opens for that token: its row of weights, the input row, and the products of the two.
+4. Reads the products sorted by size. This is the part that serves the research and not only the understanding: it answers "which units of the step before produced this value, for this word".
+
+**Components, one per kind of step.** Most networks are made of a few kinds of step, and the drawing in the vault is already built that way: every linear step shares one piece of code for its bar, its close-up, its weight slab and its written-out sum. The view has one component per `kind` in the graph, and each component knows how to draw the bar and the close-up.
+
+| kind | what its close-up shows |
+|---|---|
+| `lookup` | a token's row picked out of a table |
+| `linear`, `linear+bend` | the unit's weight row times the input row plus the intercept, the sum written out; with a bend, the curve and the point on it |
+| `norm` | the mean taken off and the spread divided out |
+| `add`, `difference` | two rows combined column by column |
+| `scores` | the dot product of one token's row with another's |
+| `weights-over-positions` | scores turned into shares that add to 1 |
+| `mix` | rows weighted by the shares and added |
+
+A step of a kind the view has no component for still gets a plain bar and a sheet, so a new network never fails to draw. It only lacks a close-up at that step.
+
+**Placing the steps is done by hand, by whoever writes the scanner.** The graph already carries `lane` and `order` for each node. Working out a good arrangement automatically from the edges is the hard part of drawing a network, and it is not needed: the scanner for a new network will most likely be written by an agent, which can place a dozen steps by hand as was done for the drawing in the vault, provided it can see the result. So the kit should come with:
+
+- **A worked example:** the GPT-2 scanner, with its graph and placements, as the thing to copy from.
+- **A template:** an empty scanner with one step of each kind and comments saying what to fill in.
+- **A way to look at the drawing without a person:** a command that renders the drawing for a scanner to an image file. Placing steps by hand only works if the one placing them can check a picture after each change. The drawing in the vault was made that way, with a headless browser taking a picture after every edit.
+
+Steps that only make sense together, such as the three linear layers, the scores, the shares and the mix of attention, are already tied by `group`, and the drawing should frame a group as one thing.
+
+**What it needs from the scanner.** One addition, optional like the others. `unit` takes `run` and `token`, and for a `linear` or `linear+bend` node the reply gains:
+
+```json
+"terms": {"node": "b0.mlp.act", "sum": 0.92, "intercept": -0.31, "count": 3072,
+          "top": [{"unit": 1572, "weight": 0.41, "input": 1.83, "product": 0.75}],
+          "bottom": [{"unit": 88, "weight": -0.22, "input": 0.95, "product": -0.21}],
+          "rest": 0.12}
+```
+
+`node` is the step the unit reads. `input` is what the unit actually multiplies, so for the features it is the neuron's value with its usual level taken off. `top` and `bottom` are the largest products pushing the sum up and down, `rest` is the total of all the others, and `top`, `bottom`, `rest` and `intercept` add up to `sum`. `sum` is the value before any bend. For a feature that is on, ReLU leaves it unchanged, so the split is exact for the value shown. For a GELU neuron the split is exact for the sum and the bend then acts on the whole of it, and the close-up should say so instead of dividing the output among the inputs.
+
+The weight row and the products answer different questions and the close-up should keep them apart: the weights say what the unit listens to for any text, the products say what happened for this token.
+
+**Order to build in.** The bars for the existing GPT-2 scanner, fed live. Then the row opening into the sheet. Then the close-up for linear steps with `terms`. Then the other kinds' close-ups, the template and the render command.
+
 ## Not decided
 
 - Whether the logging the training script does has any part in this. It should not need to: the scanner reads saved weights from a run's folder, whichever client wrote the log. The one place they meet is that the tracker must be able to list a run's saved weight files and fetch them, which it already does.

@@ -45,6 +45,9 @@ class Toy(scankit.Scanner):
     def words(self, snapshot, node, units):               # what a mixed unit responds to: the letters it weighs most
         return [[chr(97 + int(i)) for i in scankit.strongest(snapshot.data["mix"][u], 3)] for u in units]
 
+    def terms(self, snapshot, node, unit, rows):          # how a mixed unit's value was made for one word
+        return {"node": "letters", "weights": snapshot.data["mix"][unit], "input": rows["letters"], "intercept": 0.0} if node == "mix" else None
+
     def unit(self, snapshot, node, unit):
         w = snapshot.data["mix"]
         if node == "mix":

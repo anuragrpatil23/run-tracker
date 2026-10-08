@@ -53,6 +53,14 @@ class Kit(unittest.TestCase):
         self.assertEqual((c["first_difference"], [p["same_text"] for p in c["per_pair"]]), (1, [True, False, True, True]))
         self.assertEqual(c["per_pair"][0]["distance"], 0.0)
         self.assertEqual(kit.unit(snap, "mix", 0)["words_test"], "each letter on its own")
+        self.assertNotIn("terms", kit.unit(snap, "mix", 0))                                               # only when a run and token are named
+        u = mix["top"][1][0][0]                                                                           # the strongest unit for "sky"
+        t = kit.unit(snap, "mix", u, r["run"], 1)["terms"]
+        self.assertEqual((t["node"], t["count"]), ("letters", 26))
+        self.assertTrue(all(p["product"] > 0 for p in t["top"]) and all(p["product"] < 0 for p in t["bottom"]))
+        self.assertAlmostEqual(sum(p["product"] for p in t["top"] + t["bottom"]) + t["rest"] + t["intercept"], t["sum"], places=3)
+        self.assertAlmostEqual(t["sum"], mix["top"][1][0][1], places=3)                                  # the sum is the value shown, since it is above zero
+        self.assertNotIn("terms", kit.unit(snap, "letters", 0, r["run"], 1))                              # not a weighted sum: nothing to split
         for bad, code in ((lambda: kit.unit(snap, "mix", 99), "unknown_unit"), (lambda: kit.values("nope", "mix", 0, 0, 1), "unknown_run"),
                           (lambda: kit.contrast("a b", "a", snap, "mix"), "bad_request"), (lambda: kit.run(" ".join(["w"] * 99), snap), "too_long")):
             with self.assertRaises(scankit.Problem) as e:
