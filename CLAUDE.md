@@ -41,6 +41,9 @@ between the three parts.
   It may use NumPy; nothing under `runtracker/` or `tracker.py` may import it or NumPy. `tests/toy_scanner.py`
   stays in the standard library so the tracker's own tests need nothing; `scankit/examples/toy.py` is the
   same network written on the kit.
+- `web/src/Bars3D.tsx` is the network in three dimensions (three.js, loaded only when shown). It needs WebGL:
+  `web/scripts/drive.mjs` starts Chrome with software 3D for that, and the view falls back to the flat drawing
+  where there is none. Steps are placed by the scanner's `lane` and `order`; the view lays nothing out itself.
 - `claude-workspace/` — working notes for this project.
 
 ## Rules

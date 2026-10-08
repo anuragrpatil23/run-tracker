@@ -40,35 +40,53 @@ export async function rowOf(project: string, run: string, node: string, token: n
 const shape = (n: number) => { const cols = Math.ceil(Math.sqrt(n * 4 / 3)); return { cols, rows: Math.ceil(n / cols) }; };
 
 /* The sheet itself. `glow` is each unit's value with its usual level already taken off. */
-export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label, raw }:
-  { glow: number[]; marks?: Mark[]; cell: number; theme: string; unit: string; onCell?: (i: number) => void; label: string; raw?: (i: number) => string }) {
+export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label, raw, fold }:
+  { glow: number[]; marks?: Mark[]; cell: number; theme: string; unit: string; onCell?: (i: number) => void; label: string; raw?: (i: number) => string; fold?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [tip, setTip] = useState<{ i: number; x: number; y: number } | null>(null);
   const { cols, rows } = shape(glow.length);
+  const folded = useRef("");
   useEffect(() => {
     const c = ref.current; if (!c) return;
     const dpr = devicePixelRatio || 1;
     c.width = cols * cell * dpr; c.height = rows * cell * dpr;
     const g = c.getContext("2d")!; g.scale(dpr, dpr);
-    g.fillStyle = cssColour("--wash"); g.fillRect(0, 0, cols * cell, rows * cell);
     // The glow is scaled to the 99th largest in a hundred, not the very largest, or a few strong units wash the rest out.
     const sizes = glow.map(Math.abs).filter(v => v > 0).sort((a, b) => a - b);
     const top = sizes.length ? sizes[Math.min(sizes.length - 1, Math.floor(sizes.length * 0.99))] : 1;
-    const up = cssColour("--s1"), down = cssColour("--s8"), gap = cell > 5 ? 1 : 0;
-    glow.forEach((v, i) => {
-      if (!v) return;
-      // squared, so that the many units a little off their usual level stay dark and the few far from it stand out
-      g.globalAlpha = Math.min(1, Math.abs(v) / top) ** 2;
-      g.fillStyle = v > 0 ? up : down;
-      g.fillRect((i % cols) * cell, Math.floor(i / cols) * cell, cell - gap, cell - gap);
-    });
-    g.globalAlpha = 1;
-    const shared = marks.length > 1 ? new Set([...marks[0].cells].filter(i => marks[1].cells.has(i))) : new Set<number>();
-    marks.forEach(m => { g.strokeStyle = m.colour; g.lineWidth = Math.max(1.25, cell / 5);
-      m.cells.forEach(i => { if (!shared.has(i)) g.strokeRect((i % cols) * cell + 0.5, Math.floor(i / cols) * cell + 0.5, cell - gap - 1, cell - gap - 1); }); });
-    g.strokeStyle = cssColour("--fg"); g.lineWidth = Math.max(1.75, cell / 4);                          // cells both patterns use
-    shared.forEach(i => g.strokeRect((i % cols) * cell - 0.5, Math.floor(i / cols) * cell - 0.5, cell - gap + 1, cell - gap + 1));
-  }, [glow, marks, cell, theme, cols, rows]);
+    const up = cssColour("--s1"), down = cssColour("--s8"), ground = cssColour("--wash"), ink = cssColour("--fg");
+    /* The sheet with `across` cells to a line. At rest that is `cols`. While a row is folding it starts four times as
+       long and wraps down to `cols`, so the same numbers are seen going from a long row to a square. */
+    const paint = (across: number, final: boolean) => {
+      const size = cols * cell / across, gap = size > 5 ? 1 : 0;
+      g.clearRect(0, 0, cols * cell, rows * cell);
+      g.globalAlpha = 1; g.fillStyle = ground; g.fillRect(0, 0, cols * cell, Math.ceil(glow.length / across) * size);
+      glow.forEach((v, i) => {
+        if (!v) return;
+        // squared, so that the many units a little off their usual level stay dark and the few far from it stand out
+        g.globalAlpha = Math.min(1, Math.abs(v) / top) ** 2;
+        g.fillStyle = v > 0 ? up : down;
+        g.fillRect((i % across) * size, Math.floor(i / across) * size, Math.max(0.6, size - gap), Math.max(0.6, size - gap));
+      });
+      g.globalAlpha = 1;
+      if (!final) return;
+      const shared = marks.length > 1 ? new Set([...marks[0].cells].filter(i => marks[1].cells.has(i))) : new Set<number>();
+      marks.forEach(m => { g.strokeStyle = m.colour; g.lineWidth = Math.max(1.25, cell / 5);
+        m.cells.forEach(i => { if (!shared.has(i)) g.strokeRect((i % cols) * cell + 0.5, Math.floor(i / cols) * cell + 0.5, cell - gap - 1, cell - gap - 1); }); });
+      g.strokeStyle = ink; g.lineWidth = Math.max(1.75, cell / 4);                                      // cells both patterns use
+      shared.forEach(i => g.strokeRect((i % cols) * cell - 0.5, Math.floor(i / cols) * cell - 0.5, cell - gap + 1, cell - gap + 1));
+    };
+    if (!fold || fold === folded.current || matchMedia("(prefers-reduced-motion: reduce)").matches) { folded.current = fold ?? ""; paint(cols, true); return; }
+    folded.current = fold;
+    let frame = 0; const began = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - began) / 650), ease = 1 - (1 - t) ** 3;
+      paint(Math.max(cols, Math.round(cols * (4 - 3 * ease))), t === 1);
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [glow, marks, cell, theme, cols, rows, fold]);
   const at = (e: React.MouseEvent) => {
     const b = ref.current!.getBoundingClientRect();
     const i = Math.floor((e.clientY - b.top) / b.height * rows) * cols + Math.floor((e.clientX - b.left) / b.width * cols);
@@ -159,6 +177,34 @@ export function SheetView({ project, graph, run, tokens, top, token, snapshot, o
           <p className="muted small">Click a feature to draw its pattern on the sheet: an outline round the cells that carry half of it. Click a second to set the two against each other. A feature lighting up shows it is related to the text, not that it causes anything.</p>
         </div>
       </div>
+    </section>
+  );
+}
+
+/* Any step's row for one token, opened out as a sheet. When the row changes, it is shown folding: the long row a bar
+   draws part of, wrapping down into the square that holds all of it. */
+export function StepSheet({ project, run, node, token, tokenText, drawn, how, theme, onCell }:
+  { project: string; run: string; node: { id: string; label: string; width?: number | null; unit?: string }; token: number; tokenText: string;
+    drawn: number; how: string; theme: string; onCell: (unit: number) => void }) {
+  const [row, setRow] = useState<Row | null>(null);
+  const [said, setSaid] = useState("");
+  const width = node.width ?? 0;
+  useEffect(() => {
+    let alive = true;
+    setRow(null);
+    rowOf(project, run, node.id, token, width).then(r => { if (alive) { setRow(r); setSaid(""); } }, e => alive && setSaid(e.message));
+    return () => { alive = false; };
+  }, [project, run, node.id, token]);
+  const glow = useMemo(() => (row ? row.values.map((v, i) => v - (row.usual?.[i] ?? 0)) : []), [row]);
+  const unit = node.unit ?? "unit";
+  return (
+    <section className="panel stepsheet">
+      <div className="row"><h2>{node.label}, the row for <span className="mono">{showToken(tokenText)}</span>, as a sheet</h2></div>
+      <p className="muted small">The same numbers as that row of the bar, folded from one long row into a square. The bar drew {how === "strongest" ? `its ${fmt(drawn)} strongest` : `the first ${fmt(drawn)}`} of {fmt(width)} {unit}s; the sheet has all {fmt(width)}.
+        {row?.usual ? ` Each is shown against that ${unit}'s usual level.` : ""} Click a square for its {unit}.{said ? " " + said : ""}</p>
+      {row ? <SheetCanvas glow={glow} cell={glow.length > 6000 ? 4 : 9} theme={theme} unit={unit} label={`${node.label} for this token, every ${unit}`} fold={`${run}/${node.id}/${token}`}
+        onCell={onCell} raw={i => `${fmt(+row.values[i].toPrecision(3))}${row.usual ? `, usually ${fmt(+row.usual[i].toPrecision(3))}` : ""}`} />
+        : <div className="sheet empty" style={{ width: 576, height: 200 }} />}
     </section>
   );
 }

@@ -7,16 +7,19 @@
    What it shows: the network as a drawing; the text as the model split it; for the chosen step, a grid of tokens
    against that step's strongest units; one token's whole row as a strip; a unit's page; two texts set against each
    other; and the same text through several snapshots. */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BarData } from "./Bars3D";
 import { api, cssColour, enc, fmt, Run, sizeText, useStored } from "./lib";
-import { ContrastSheets, sheetParts, SheetView } from "./Sheet";
+import { ContrastSheets, sheetParts, SheetView, StepSheet } from "./Sheet";
+
+const Bars3D = lazy(() => import("./Bars3D"));       // three.js comes with it, and only when the drawing is shown
 
 type Node = { id: string; label: string; about?: string; group?: string | null; kind: string; width?: number; each?: number; per?: string; lane: number; order: number;
   weights?: number; unit?: string; bend?: string; sparse?: boolean; described?: boolean };
 type Graph = { title: string; groups?: { id: string; label: string }[]; nodes: Node[]; edges: { from: string; to: string; kind?: string }[] };
 type Snapshot = { id: string; label: string; run?: string | null; step?: number; of?: number; available?: boolean; state?: string; file?: string };
 type Top = [number, number, (string[] | null)?];
-type NodeResult = { size?: number[]; on?: number[]; top?: Top[][]; grid?: { units: number[]; values: number[][]; words?: (string[] | null)[] } | number[][] };
+type NodeResult = { size?: number[]; on?: number[]; top?: Top[][]; head?: number[][]; grid?: { units: number[]; values: number[][]; words?: (string[] | null)[] } | number[][] };
 type Result = { run: string; snapshot: string; tokens: { i: number; text: string }[]; nodes: Record<string, NodeResult>; next?: { text: string; chance: number }[] };
 type Side = [number, number, (string[] | null)?][];
 type Contrast = { run_a: string; run_b: string; tokens_a: { i: number; text: string }[]; tokens_b: { i: number; text: string }[]; pairs: [number, number][];
@@ -119,6 +122,52 @@ function Strip({ project, run, node, token, theme, width }: { project: string; r
 
 type Away = { run: string; name: string; path: string; size: number };
 
+type Term = { unit: number; weight: number; input: number; product: number };
+type Terms = { node: string; sum: number; intercept: number; count: number; top: Term[]; bottom: Term[]; rest: number; weights?: number[]; inputs?: number[] };
+
+/* How one unit's value was made for one token: its weights times what it read, the largest products each way, the rest
+   and the intercept, adding up to the sum. The weights say what the unit listens to for any text; the products say what
+   happened for this token, and the two are kept apart. */
+function Made({ terms, label, unitName, token, bend, open, theme }: { terms: Terms; label: (id: string) => string; unitName: string; token: string; bend?: string; open: (u: number) => void; theme: string }) {
+  const most = Math.max(1e-9, ...[...terms.top, ...terms.bottom].map(t => Math.abs(t.product)));
+  const line = (t: Term) => <tr key={t.unit}><td><button className="small ghost" onClick={() => open(t.unit)}>{unitName} {fmt(t.unit)}</button></td>
+    <td className="num">{fmt(t.weight)}</td><td className="num">{fmt(t.input)}</td>
+    <td className="num"><span className="pbar"><b className={t.product < 0 ? "neg" : ""} style={{ width: `${100 * Math.abs(t.product) / most}%` }} /></span>{fmt(t.product)}</td></tr>;
+  const strip = (v: number[] | undefined, what: string) => v && <StripRow values={v} what={what} theme={theme} />;
+  return (
+    <div className="made">
+      <h3>How this value was made for <span className="mono">{token}</span></h3>
+      <p className="small">{fmt(terms.count)} {unitName}s of {label(terms.node)}, each times its weight, plus an intercept of {fmt(terms.intercept)}, add up to <b>{fmt(terms.sum)}</b>.
+        {bend ? ` ${bend} is then applied to that whole sum, so the output is not divided among the inputs.` : ""}</p>
+      {strip(terms.weights, "Its weights: what it listens to, whatever the text")}
+      {strip(terms.inputs, "What it read for this token")}
+      {terms.weights && terms.inputs && strip(terms.weights.map((w, i) => w * terms.inputs![i]), "The products of the two: what happened for this token")}
+      <div className="scroll"><table className="terms">
+        <thead><tr><th>{unitName}</th><th className="num">weight</th><th className="num">read</th><th className="num">product</th></tr></thead>
+        <tbody>
+          <tr className="sub"><td colSpan={4}>Pushing it up most</td></tr>{terms.top.map(line)}
+          {terms.bottom.length > 0 && <tr className="sub"><td colSpan={4}>Pushing it down most</td></tr>}{terms.bottom.map(line)}
+          <tr className="sub"><td colSpan={3}>All {fmt(terms.count - terms.top.length - terms.bottom.length)} others together</td><td className="num">{fmt(terms.rest)}</td></tr>
+          <tr className="sub"><td colSpan={3}>The intercept</td><td className="num">{fmt(terms.intercept)}</td></tr>
+          <tr className="sub total"><td colSpan={3}>The sum</td><td className="num">{fmt(terms.sum)}</td></tr>
+        </tbody></table></div>
+    </div>
+  );
+}
+/* A whole row of numbers as one thin band, blue above zero and red below. */
+function StripRow({ values, what, theme }: { values: number[]; what: string; theme: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current; if (!c) return;
+    const W = c.clientWidth, dpr = devicePixelRatio || 1, sizes = values.map(Math.abs).sort((a, b) => a - b), top = Math.max(1e-9, sizes[Math.floor(sizes.length * 0.99)] ?? 1);
+    c.width = W * dpr; c.height = 16 * dpr;
+    const g = c.getContext("2d")!; g.scale(dpr, dpr);
+    const up = cssColour("--s1"), down = cssColour("--s8"), w = W / values.length;
+    values.forEach((v, i) => { if (!v) return; g.globalAlpha = Math.min(1, Math.abs(v) / top) ** 1.5; g.fillStyle = v > 0 ? up : down; g.fillRect(i * w, 0, Math.max(1, w), 16); });
+  }, [values, theme]);
+  return <div className="striprow"><span className="muted small">{what}</span><canvas ref={ref} role="img" aria-label={what} /></div>;
+}
+
 export function Scan({ project, theme, runs }: { project: string; theme: string; runs: Run[] }) {
   const [glob, setGlob] = useState("");
   const [away, setAway] = useState<Away[]>([]);
@@ -135,7 +184,10 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
   const [differ, setDiffer] = useState<Contrast | null>(null);
   const [node, setNode] = useState("");
   const [token, setToken] = useState(0);
-  const [pair, setPair] = useState<number | null>(null);               // which pair of tokens the two sheets show
+  const [pair, setPair] = useState<number | null>(null);
+  const [solid, setSolid] = useStored("scan.solid", true);              // the drawing as bars in three dimensions, or flat
+  const [opened, setOpened] = useState<{ node: string; token: number } | null>(null);   // the row of a bar that is open as a sheet
+  const [heads, setHeads] = useState<Record<string, number[][]>>({});               // which pair of tokens the two sheets show
   const [unit, setUnit] = useState<{ node: string; unit: number } | null>(null);
   const [page, setPage] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -215,9 +267,9 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
     if (!unit || !primary) { setPage(null); return; }
     let alive = true;
     setPage(null);
-    ask("unit", `snapshot=${enc(primary)}&node=${enc(unit.node)}&unit=${unit.unit}`).then(p => alive && setPage(p), e => alive && setPage({ error: e.message }));
+    ask("unit", `snapshot=${enc(primary)}&node=${enc(unit.node)}&unit=${unit.unit}` + (results[primary] && !contrasting ? `&run=${enc(results[primary].run)}&token=${token}&all=1` : "")).then(p => alive && setPage(p), e => alive && setPage({ error: e.message }));
     return () => { alive = false; };
-  }, [unit, primary, ask]);
+  }, [unit, primary, ask, results, token, contrasting]);
 
   const can = (what: string) => !health?.supports || health.supports.includes(what);
   const run = async () => {
@@ -241,6 +293,33 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
 
   const result = results[primary];
   const picked = graph?.nodes.find(n => n.id === node);
+  /* What each bar of the 3D drawing is made of. A step's first units in order come with the run ("head"); a sparse step
+     draws its strongest instead; a grid of tokens draws itself. A scanner that sends no head is asked for the first 32
+     of each row, a token at a time. */
+  const HEAD = 32;
+  useEffect(() => {
+    setHeads({}); setOpened(null);
+    if (!result || !graph) return;
+    let alive = true;
+    for (const n of graph.nodes) {
+      const r = result.nodes[n.id];
+      if (!r || r.head || n.sparse || Array.isArray(r.grid) || n.per === "token-pair") continue;
+      Promise.all(result.tokens.map(t => fetch(`/api/v2/scan/${enc(project)}/values?run=${enc(result.run)}&node=${enc(n.id)}&token=${t.i}&from=0&count=${HEAD}`).then(x => x.json()).then(x => x.values ?? [])))
+        .then(rows => alive && setHeads(old => ({ ...old, [n.id]: rows })), () => {});
+    }
+    return () => { alive = false; };
+  }, [result, graph, project]);
+  const bars = useMemo(() => {
+    const out: Record<string, BarData> = {};
+    for (const n of graph?.nodes ?? []) {
+      const r = result?.nodes[n.id]; if (!r) continue;
+      if (Array.isArray(r.grid)) out[n.id] = { rows: r.grid as (number | null)[][], units: null, how: "tokens" };
+      else if (n.sparse && r.grid) out[n.id] = { rows: r.grid.values.map(row => row.slice(0, HEAD)), units: r.grid.units.slice(0, HEAD), how: "strongest" };
+      else if (r.head ?? heads[n.id]) out[n.id] = { rows: (r.head ?? heads[n.id]) as number[][], units: null, how: "first" };
+    }
+    return out;
+  }, [graph, result, heads]);
+  const tokenTexts = useMemo(() => (result?.tokens ?? []).map(t => t.text), [result]);
   // how brightly each step lights for each token: the size of the token's row there, against the largest at that step
   const heat = useMemo(() => {
     const out: Record<string, number[]> = {};
@@ -313,7 +392,17 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
         {graph && sheetParts(graph) && <SheetView project={project} graph={graph} run={result.run} tokens={result.tokens} top={result.nodes[sheetParts(graph)!.features.id]?.top as any}
           token={token} snapshot={primary} openUnit={(n, u) => setUnit({ node: n, unit: u })} theme={theme} />}
       </>}
-      {graph && <><div className="row"><h2>{graph.title}</h2><span className="muted small">{Object.keys(heat).length && !contrasting ? "Each step's strip has one cell per token, brighter where that token's row is larger. Click a step to look inside it." : "Click a step to look inside it. Run some text and every step lights up."}</span></div><Drawing graph={graph} picked={node} pick={setNode} heat={contrasting ? {} : heat} token={token} />
+      {graph && <><div className="row"><h2>{graph.title}</h2><span className="muted small">{result && !contrasting ? (solid ? "Each bar is a step: tokens down, the step's units across, a tile taller and brighter the further from zero. Drag to turn it. Click a tile to open its row as a sheet and its unit beside it."
+          : "Each step's strip has one cell per token, brighter where that token's row is larger. Click a step to look inside it.") : "Click a step to look inside it. Run some text and every step lights up."}</span>
+        <span className="grow" />{result && !contrasting && <div className="seg" role="group" aria-label="How the network is drawn">
+          <button className="small" aria-pressed={solid} onClick={() => setSolid(true)}>Bars</button><button className="small" aria-pressed={!solid} onClick={() => setSolid(false)}>Flat</button></div>}</div>{solid && result && !contrasting
+        ? <Suspense fallback={<div className="bars3d"><div className="stage" /></div>}><Bars3D graph={graph} bars={bars} tokens={tokenTexts} token={token} picked={node} theme={theme}
+            onFail={() => { setSolid(false); setSaid("This browser cannot draw in three dimensions, so the network is shown flat."); }}
+            onTile={(id, t, u) => { setNode(id); setToken(t); setOpened(graph.nodes.find(n => n.id === id)?.per === "token-pair" ? null : { node: id, token: t }); if (u != null) setUnit({ node: id, unit: u }); }} /></Suspense>
+        : <Drawing graph={graph} picked={node} pick={setNode} heat={contrasting ? {} : heat} token={token} />}
+        {solid && result && !contrasting && opened && graph.nodes.find(n => n.id === opened.node)?.width
+          ? <StepSheet project={project} run={result.run} node={graph.nodes.find(n => n.id === opened.node)!} token={opened.token} tokenText={result.tokens[opened.token]?.text ?? ""}
+              drawn={bars[opened.node]?.rows[0]?.length ?? 0} how={bars[opened.node]?.how ?? "first"} theme={theme} onCell={u => setUnit({ node: opened.node, unit: u })} /> : null}
         {picked && <p className="small"><b>{picked.label}.</b> <span className="muted">{picked.about ?? ""} {picked.width
           ? `${fmt(picked.width)} ${picked.unit ?? "unit"}s${picked.each ? `, each ${fmt(picked.each)} wide (that many numbers go into one ${picked.unit ?? "unit"})` : ""}${picked.per === "token-pair" ? ", one for each pair of tokens" : ", worked out for each token"}.` : ""}</span></p>}</>}
 
@@ -355,6 +444,8 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
         {!page ? <p className="muted small">Asking…</p> : page.error ? <p className="note-warn small">{page.error}</p> : <>
           {page.words && <div><h3>What it responds to</h3><div className="chiprow">{page.words.map(([w, v]: [string, number]) => <span key={w} className="w">{showToken(w)} <i>{fmt(+v.toPrecision(3))}</i></span>)}</div>
             <p className="muted small">Found by one test: {page.words_test ?? "not stated"}. This is evidence about the unit, not a name for it.</p></div>}
+          {page.terms && <Made terms={page.terms} label={l => graph?.nodes.find(n => n.id === l)?.label ?? l} unitName={graph?.nodes.find(n => n.id === page.terms.node)?.unit ?? "unit"}
+            token={showToken(result?.tokens[token]?.text ?? "")} bend={graph?.nodes.find(n => n.id === unit.node)?.bend} theme={theme} open={u => setUnit({ node: page.terms.node, unit: u })} />}
           {page.fires_on != null && <p className="small">On for {fmt(+(page.fires_on * 100).toPrecision(2))}% of tokens.</p>}
           {page.agreement != null && <p className="small">What it listens to and what it is made of agree by {fmt(+page.agreement.toPrecision(2))} <span className="muted">(1 would be the same pattern, 0 unrelated).</span></p>}
           {(["made_of", "listens_to", "used_by"] as const).filter(k => page[k]).map(k => <div key={k}>
