@@ -122,7 +122,15 @@ export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label
   );
 }
 
-type Top = [number, number, (string[] | null)?];
+type Top = [number, number, (string[] | null)?, (number | null)?];
+
+/* A unit's words, where the test that found them supports them: the best of them fires it at least half as hard as the
+   text does. Words the test barely moves it with would read as a meaning they do not have. A scanner that does not say
+   how hard (no peak) has its words shown as they are. */
+export function fairWords(w: string[] | null | undefined, peak: number | null | undefined, value: number): string[] | null {
+  if (!w?.length) return null;
+  return peak === undefined || (peak != null && peak >= 0.5 * Math.abs(value)) ? w : null;
+}
 const showToken = (t: string) => t.replace(/^ +/, m => "·".repeat(m.length)).replace(/\n/g, "↵") || "∅";
 
 /* The colours of a token's four strongest features, on the sheet and in the reading alike. Apart from the two used to
@@ -131,8 +139,8 @@ const FEATURE_HUES = ["--s1", "--s3", "--s4", "--s7"];
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 /* The sheet for one token of a run, with its reading beside it. */
-export function SheetView({ project, graph, run, tokens, top, firing, token, snapshot, openUnit, theme }:
-  { project: string; graph: SheetGraph; run: string; tokens: { i: number; text: string }[]; top: Top[][] | undefined; firing?: Firing[]; token: number; snapshot: string;
+export function SheetView({ project, graph, run, tokens, top, firing, test, token, snapshot, openUnit, theme }:
+  { project: string; graph: SheetGraph; run: string; tokens: { i: number; text: string }[]; top: Top[][] | undefined; firing?: Firing[]; test?: string; token: number; snapshot: string;
     openUnit: (node: string, unit: number) => void; theme: string }) {
   const parts = sheetParts(graph)!;
   const [row, setRow] = useState<Row | null>(null);
@@ -184,7 +192,7 @@ export function SheetView({ project, graph, run, tokens, top, firing, token, sna
     return seen;
   }, [firing]);
   const colours = ["--s2", "--s5"];
-  const nameOf = (u: number) => { const w = reading.find(r => r[0] === u)?.[2] ?? patterns[u]?.words; return (w?.length ? w.slice(0, 2).map(showToken).join(" ") + " " : "") + "#" + u; };
+  const nameOf = (u: number) => { const r = reading.find(r => r[0] === u), w = r ? fairWords(r[2], r[3], r[1]) : patterns[u]?.words; return (w?.length ? w.slice(0, 2).map(showToken).join(" ") + " " : "") + "#" + u; };
   const marks: Mark[] = picked.map((u, k) => {
     const p = patterns[u];
     if (!p?.all) return null;
@@ -226,12 +234,12 @@ export function SheetView({ project, graph, run, tokens, top, firing, token, sna
               <div key={what} className="r"><span className="muted">{what}</span><span className="pbar wide"><b style={{ width: pct(Math.max(0, v)) }} /></span><b>{pct(v)}</b></div>)}
           </div>}
           <h3>The reading: what this pattern decodes to</h3>
-          {reading.length ? <ol>{reading.map(([u, v, w]) => {
-            const k = picked.indexOf(u), it = info.get(u);
+          {reading.length ? <ol>{reading.map(([u, v, words, peak]) => {
+            const k = picked.indexOf(u), it = info.get(u), w = fairWords(words, peak, v);
             return <li key={u}><button className={"feat" + (k >= 0 ? " on" : "")} aria-pressed={k >= 0} onClick={() => choose(u)} style={k >= 0 ? { borderColor: `var(${colours[k]})` } : undefined}
               data-tip={k >= 0 ? "Drawn on the sheet. Click to take it off." : "Draw this feature's own pattern on the sheet"}>
               <span className="bar"><b style={{ width: `${100 * Math.abs(v) / most}%`, background: hueOf(u) }} /></span>
-              <span className="mono words">{w?.length ? w.slice(0, 3).map(showToken).join(" ") : <span className="muted">no words</span>}
+              <span className="mono words">{w?.length ? w.slice(0, 3).map(showToken).join(" ") : <span className="muted" data-tip={words?.length && peak != null ? `The test's best word, “${showToken(words[0])}”, fires it only ${fmt(peak)}, against ${fmt(+v.toPrecision(3))} here` : undefined}>no single word found</span>}
                 {(shared.get(u) ?? 0) > 1 && <span className="tag" data-tip={`Also on for ${shared.get(u)! - 1} other token${shared.get(u) === 2 ? "" : "s"} of the text`}>shared</span>}</span>
               <span className="muted num">{fmt(+v.toPrecision(3))}</span>
               <span className="muted num" data-tip={it ? `${pct(it[2])} of this token's firing; rebuilds ${pct(it[3])} of the pattern alone` : undefined}>{it ? pct(it[2]) : ""}</span>
@@ -241,7 +249,7 @@ export function SheetView({ project, graph, run, tokens, top, firing, token, sna
           {picked.length > 0 && <div className="legend">{picked.map((u, k) => <span key={u}><i className="swatch box" style={{ borderColor: `var(${colours[k]})` }} />{nameOf(u)}
             {patterns[u] === null || (patterns[u] && !patterns[u]!.all) ? <span className="muted"> (this scanner does not send whole patterns)</span> : ""}</span>)}
             {marks.length > 1 && <span><i className="swatch box" style={{ borderColor: "var(--fg)" }} />{both} cell{both === 1 ? "" : "s"} in both</span>}</div>}
-          <p className="muted small">{fired ? "Beside each feature, its share of this token's firing. " : ""}Click a feature to draw its pattern on the sheet: an outline round the cells that carry half of it. Click a second to set the two against each other. A feature lighting up shows it is related to the text, not that it causes anything.</p>
+          <p className="muted small">{test ? `A feature's words are what fire it hardest in the test (${test}), shown only where the best of them fires it at least half as hard as this text does. ` : ""}{fired ? "Beside each feature, its share of this token's firing. " : ""}Click a feature to draw its pattern on the sheet: an outline round the cells that carry half of it. Click a second to set the two against each other. A feature lighting up shows it is related to the text, not that it causes anything.</p>
         </div>
       </div>
     </section>

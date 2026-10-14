@@ -3,7 +3,7 @@ skipped where it is missing.
 
 Run with: python3 -m unittest discover tests
 """
-import json, os, sys, tempfile, threading, unittest
+import json, os, sys, tempfile, threading, types, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -89,6 +89,10 @@ class Kit(unittest.TestCase):
         best = names[int(np.argmax(np.maximum((probe - usual) @ detector[u] + bias[u], 0)))]
         self.assertEqual((page["words"][0][0], page["words_test"]), (best, "thirty made-up rows"))
         self.assertEqual(sae.unit("neurons", 3)["used_by"]["node"], "sae.features")
+        snap = types.SimpleNamespace(data=sae)                          # the kit finds the autoencoder in a snapshot's data
+        self.assertEqual(scankit.Scanner().peaks(snap, "sae.features", [u]), [round(page["words"][0][1], 4)])
+        self.assertEqual(scankit.Scanner().words_test(snap, "sae.features"), "thirty made-up rows")
+        self.assertIsNone(scankit.Scanner().peaks(snap, "neurons", [u]))
         again = scankit.SparseAutoencoder(detector, bias, pattern, usual, reads="neurons", probe=lambda: self.fail("worked out again"), probe_words=names, test="thirty made-up rows", cache=cache)
         self.assertEqual(again.words([u]), sae.words([u])); self.assertEqual(len(made), 1)                # kept on disk, not worked out twice
 

@@ -135,6 +135,7 @@ Reply:
 - `tokens[].i` runs from 0 to n-1 with no gaps.
 - `size` is one number per token: the length of that token's row at that node.
 - `top` is, per token, the `top` largest units by absolute value as `[unit, value]`, with a third item, a short list of words the unit responds to, where the node is `described`.
+- `top` items may carry a fourth item, where the node is `described`: how hard the best of the unit's words fires it in the test that found them (`words[0][1]` of the unit reply), or `null`. `grid` may carry `peaks`, the same per unit, and the node `words_test`, that test in words. The view shows a unit's words only where its peak is at least half its value on the token (for a grid column, its largest value in the text); elsewhere it says no single word was found, since words the test barely supports read as a meaning they do not have.
 - `grid` is what the view draws for the node. For a `token` node it is the union of every token's top units, strongest first and at most 48 of them, as `units`; `values` with one row per token and one number per unit, so that a unit outside a token's own top still has its value; and `words`, one list or `null` per unit, or `null` for the whole node if it is not `described`. For a `token-pair` node `grid` is the full n by n table, row for the token looking and column for the token looked at, and the node has no `top` or `size`.
 - `on` is, per token, how many units are not zero, for `sparse` nodes.
 - `next` is what the model would write next, when it can say.
