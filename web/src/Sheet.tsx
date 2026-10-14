@@ -5,6 +5,11 @@
    pattern for another without reading a number. A cell glows by how far its unit is from its usual level: one colour
    above, another below.
 
+   The sheet is what went in, drawn once. A ring round a cell marks where the rebuild misses it, larger the further off, so
+   cells the rebuild matches stay plain; above the sheet, the share of the pattern rebuilt. By default each cell takes the
+   colour of the feature that puts most into it (the four strongest each have a colour, the rest are grey); it can be
+   coloured by sign instead.
+
    Beside the sheet is the reading: the features that pattern decodes to, strongest first, with their words. Choosing a
    feature draws its own pattern on the sheet as an outline round the cells it uses most, over the glow. Choosing two
    draws both, and marks the cells they share.
@@ -13,10 +18,12 @@
    edge leaves. The features are the step marked sparse, and the rebuild is the step that follows it at the sheet's
    width. A scanner that does not send whole patterns still gets the sheet and the reading. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cssColour, enc, fmt } from "./lib";
+import { cssColour, enc, fmt, useStored } from "./lib";
 
 export type SheetGraph = { nodes: { id: string; label: string; width?: number | null; unit?: string; sparse?: boolean }[]; edges: { from: string; to: string; kind?: string }[] };
-type Row = { values: number[]; usual: number[] | null };
+type Row = { values: number[]; usual: number[] | null; owner: (number | null)[] | null };
+/* How one token's features rebuild what the autoencoder read: the run reply's `firing` (docs/scan.md). */
+export type Firing = { total: number; units: [number, number, number, number][]; rebuilt: { top1: number; top3: number; all: number } | null };
 type Mark = { cells: Set<number>; colour: string; label: string };
 
 /* Which steps play which part, read off the drawing. Null if no step is read by another: then there is no sheet. */
@@ -36,14 +43,16 @@ export async function rowOf(project: string, run: string, node: string, token: n
   for (let i = 0; i < Math.max(1, Math.ceil(width / 4096)); i++)
     parts.push(await fetch(`/api/v2/scan/${enc(project)}/values?run=${enc(run)}&node=${enc(node)}&token=${token}&from=${i * 4096}&count=4096`).then(r => r.json()));
   if (parts.some(p => p.error)) throw new Error(parts.find(p => p.error).error.message);
-  return { values: parts.flatMap(p => p.values ?? []), usual: parts.every(p => p.usual) ? parts.flatMap(p => p.usual) : null };
+  return { values: parts.flatMap(p => p.values ?? []), usual: parts.every(p => p.usual) ? parts.flatMap(p => p.usual) : null, owner: parts.every(p => p.owner) ? parts.flatMap(p => p.owner) : null };
 }
 
 const shape = (n: number) => { const cols = Math.ceil(Math.sqrt(n * 4 / 3)); return { cols, rows: Math.ceil(n / cols) }; };
 
-/* The sheet itself. `glow` is each unit's value with its usual level already taken off. */
-export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label, raw, fold }:
-  { glow: number[]; marks?: Mark[]; cell: number; theme: string; unit: string; onCell?: (i: number) => void; label: string; raw?: (i: number) => string; fold?: string }) {
+/* The sheet itself. `glow` is each unit's value with its usual level already taken off. `hue` gives a cell a colour of
+   its own in place of the sign's; `rings` is how far off each cell is in something set against it, ringed where large. */
+export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label, raw, fold, hue, rings }:
+  { glow: number[]; marks?: Mark[]; cell: number; theme: string; unit: string; onCell?: (i: number) => void; label: string; raw?: (i: number) => string; fold?: string;
+    hue?: (string | null)[] | null; rings?: number[] | null }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [tip, setTip] = useState<{ i: number; x: number; y: number } | null>(null);
   const { cols, rows } = shape(glow.length);
@@ -67,11 +76,19 @@ export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label
         if (!v) return;
         // squared, so that the many units a little off their usual level stay dark and the few far from it stand out
         g.globalAlpha = Math.min(1, Math.abs(v) / top) ** 2;
-        g.fillStyle = v > 0 ? up : down;
+        g.fillStyle = hue?.[i] ?? (v > 0 ? up : down);
         g.fillRect((i % across) * size, Math.floor(i / across) * size, Math.max(0.6, size - gap), Math.max(0.6, size - gap));
       });
       g.globalAlpha = 1;
       if (!final) return;
+      // on the same scale as the glow, so a ring says the miss is a real part of what went in, not a tiny leftover
+      if (rings) {
+        g.strokeStyle = ink; g.lineWidth = 1;
+        rings.forEach((m, i) => {
+          const k = m / top; if (k < 0.25) return;                       // a quarter of a strong cell: a few dozen at most when the rebuild is good
+          g.beginPath(); g.arc((i % cols) * cell + cell / 2, Math.floor(i / cols) * cell + cell / 2, cell * (0.3 + 1.4 * Math.min(1, k)), 0, 2 * Math.PI); g.stroke();
+        });
+      }
       const shared = marks.length > 1 ? new Set([...marks[0].cells].filter(i => marks[1].cells.has(i))) : new Set<number>();
       marks.forEach(m => { g.strokeStyle = m.colour; g.lineWidth = Math.max(1.25, cell / 5);
         m.cells.forEach(i => { if (!shared.has(i)) g.strokeRect((i % cols) * cell + 0.5, Math.floor(i / cols) * cell + 0.5, cell - gap - 1, cell - gap - 1); }); });
@@ -88,7 +105,7 @@ export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [glow, marks, cell, theme, cols, rows, fold]);
+  }, [glow, marks, cell, theme, cols, rows, fold, hue, rings]);
   const at = (e: React.MouseEvent) => {
     const b = ref.current!.getBoundingClientRect();
     const i = Math.floor((e.clientY - b.top) / b.height * rows) * cols + Math.floor((e.clientX - b.left) / b.width * cols);
@@ -108,23 +125,32 @@ export function SheetCanvas({ glow, marks = [], cell, theme, unit, onCell, label
 type Top = [number, number, (string[] | null)?];
 const showToken = (t: string) => t.replace(/^ +/, m => "·".repeat(m.length)).replace(/\n/g, "↵") || "∅";
 
+/* The colours of a token's four strongest features, on the sheet and in the reading alike. Apart from the two used to
+   outline chosen features, so an outline never reads as one of them. */
+const FEATURE_HUES = ["--s1", "--s3", "--s4", "--s7"];
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+
 /* The sheet for one token of a run, with its reading beside it. */
-export function SheetView({ project, graph, run, tokens, top, token, snapshot, openUnit, theme }:
-  { project: string; graph: SheetGraph; run: string; tokens: { i: number; text: string }[]; top: Top[][] | undefined; token: number; snapshot: string;
+export function SheetView({ project, graph, run, tokens, top, firing, token, snapshot, openUnit, theme }:
+  { project: string; graph: SheetGraph; run: string; tokens: { i: number; text: string }[]; top: Top[][] | undefined; firing?: Firing[]; token: number; snapshot: string;
     openUnit: (node: string, unit: number) => void; theme: string }) {
   const parts = sheetParts(graph)!;
   const [row, setRow] = useState<Row | null>(null);
-  const [usual, setUsual] = useState<number[] | null>(null);
-  const [rebuilt, setRebuilt] = useState(false);
+  const [rebuilt, setRebuilt] = useState<Row | null>(null);
+  const [byFeature, setByFeature] = useStored("scan.sheetByFeature", true);
   const [picked, setPicked] = useState<number[]>([]);                  // up to two features whose patterns are drawn
   const [patterns, setPatterns] = useState<Record<number, { all?: number[]; half?: number; words?: string[] | null } | null>>({});
   const [said, setSaid] = useState("");
-  const source = rebuilt && parts.rebuild ? parts.rebuild : parts.sheet;
   useEffect(() => {
     let alive = true;
-    rowOf(project, run, source.id, token, parts.sheet.width!).then(r => { if (!alive) return; setRow(r); if (r.usual) setUsual(r.usual); setSaid(""); }, e => alive && setSaid(e.message));
+    (async () => {
+      const r = await rowOf(project, run, parts.sheet.id, token, parts.sheet.width!);
+      if (!alive) return;
+      setRow(r); setSaid("");
+      setRebuilt(parts.rebuild ? await rowOf(project, run, parts.rebuild.id, token, parts.sheet.width!).catch(() => null) : null);
+    })().catch(e => alive && setSaid(e.message));
     return () => { alive = false; };
-  }, [project, run, source.id, token]);
+  }, [project, run, token]);
   useEffect(() => { setPicked([]); }, [run]);
   useEffect(() => {
     picked.filter(u => !(u in patterns)).forEach(u => {
@@ -133,10 +159,31 @@ export function SheetView({ project, graph, run, tokens, top, token, snapshot, o
           () => setPatterns(old => ({ ...old, [u]: null })));
     });
   }, [picked, snapshot]);
-  const level = row?.usual ?? usual;                                   // the rebuild is set against the same usual level as what went in
+  const level = row?.usual;
   const glow = useMemo(() => (row ? row.values.map((v, i) => v - (level?.[i] ?? 0)) : []), [row, level]);
-  const colours = ["--s2", "--s3"];
+  const fired = firing?.[token];
   const reading = top?.[token] ?? [];
+  const strongest = (fired?.units.map(u => u[0]) ?? reading.map(r => r[0])).slice(0, FEATURE_HUES.length);
+  const canColour = !!row?.owner;
+  const hue = useMemo(() => {
+    if (!byFeature || !row?.owner) return null;
+    const own = strongest.map(u => cssColour(FEATURE_HUES[strongest.indexOf(u)])), grey = cssColour("--faint");
+    return row.owner.map(u => (u == null ? grey : strongest.includes(u) ? own[strongest.indexOf(u)] : grey));
+  }, [row, byFeature, strongest.join(","), theme]);
+  const misses = useMemo(() => (row && rebuilt ? row.values.map((v, i) => Math.abs(v - rebuilt.values[i])) : null), [row, rebuilt]);
+  // the share of the pattern rebuilt: 1 - |x - rebuild|² / |x - usual|², from the two rows, or as the scanner said
+  const share = useMemo(() => {
+    if (!misses || !glow.length) return fired?.rebuilt?.all ?? null;
+    const base = glow.reduce((a, v) => a + v * v, 0);
+    return base > 0 ? 1 - misses.reduce((a, v) => a + v * v, 0) / base : null;
+  }, [misses, glow, fired]);
+  const info = new Map((fired?.units ?? []).map(u => [u[0], u]));
+  const shared = useMemo(() => {
+    const seen = new Map<number, number>();
+    firing?.forEach(f => f.units.forEach(([u]) => seen.set(u, (seen.get(u) ?? 0) + 1)));
+    return seen;
+  }, [firing]);
+  const colours = ["--s2", "--s5"];
   const nameOf = (u: number) => { const w = reading.find(r => r[0] === u)?.[2] ?? patterns[u]?.words; return (w?.length ? w.slice(0, 2).map(showToken).join(" ") + " " : "") + "#" + u; };
   const marks: Mark[] = picked.map((u, k) => {
     const p = patterns[u];
@@ -145,38 +192,56 @@ export function SheetView({ project, graph, run, tokens, top, token, snapshot, o
     const order = p.all.map((v, i) => [Math.abs(v), i]).sort((a, b) => b[0] - a[0]).slice(0, Math.max(8, Math.min(p.half ?? 40, 160)));
     return { cells: new Set(order.map(o => o[1])), colour: cssColour(colours[k]), label: nameOf(u) };
   }).filter((m): m is Mark => !!m);
-  const shared = marks.length > 1 ? [...marks[0].cells].filter(i => marks[1].cells.has(i)).length : 0;
+  const both = marks.length > 1 ? [...marks[0].cells].filter(i => marks[1].cells.has(i)).length : 0;
   const choose = (u: number) => setPicked(old => (old.includes(u) ? old.filter(x => x !== u) : [...old, u].slice(-2)));
   const most = Math.max(1e-9, ...reading.map(r => Math.abs(r[1])));
+  const unit = parts.sheet.unit ?? "unit";
+  const hueOf = (u: number) => (byFeature && canColour && strongest.includes(u) ? `var(${FEATURE_HUES[strongest.indexOf(u)]})` : byFeature && canColour ? "var(--faint)" : "var(--s1)");
+  const cellSays = (i: number) => {
+    if (!row) return "";
+    const own = row.owner?.[i];
+    return `${fmt(+row.values[i].toPrecision(3))}${level ? `, usually ${fmt(+level[i].toPrecision(3))}` : ""}${rebuilt ? `, rebuilt as ${fmt(+rebuilt.values[i].toPrecision(3))}` : ""}`
+      + (own != null ? `; most of it from ${nameOf(own)}` : "");
+  };
   return (
     <section className="panel sheetview">
       <div className="row"><h2>The {parts.sheet.label.toLowerCase()} for <span className="mono">{showToken(tokens[token]?.text ?? "")}</span></h2>
         <span className="grow" />
-        {parts.rebuild && <div className="seg" role="group" aria-label="What the sheet shows">
-          <button className="small" aria-pressed={!rebuilt} onClick={() => setRebuilt(false)}>What went in</button>
-          <button className="small" aria-pressed={rebuilt} data-tip="What the sparse autoencoder makes of it from its features alone. The closer to what went in, the better it has learnt." onClick={() => setRebuilt(true)}>The rebuild</button></div>}
+        {canColour && <div className="seg" role="group" aria-label="How the sheet is coloured">
+          <button className="small" aria-pressed={byFeature} data-tip="Each cell in the colour of the feature that puts most into it" onClick={() => setByFeature(true)}>By feature</button>
+          <button className="small" aria-pressed={!byFeature} data-tip="Blue above the usual level, red below" onClick={() => setByFeature(false)}>By sign</button></div>}
       </div>
-      <p className="muted small">Each cell is one {parts.sheet.unit ?? "unit"}, always in the same place, in order of its number. Where a cell sits means nothing; the pattern is what to look at.
-        Blue is above that {parts.sheet.unit ?? "unit"}'s usual level, red below.{said ? " " + said : ""}</p>
+      {share != null && <p className="rebuilt"><b>{pct(share)}</b> of this token's pattern is rebuilt by its {fired ? `${fired.units.length} ` : ""}features.
+        {misses && <span className="muted"> A ring marks a {unit} the rebuild misses, larger the further off.</span>}</p>}
+      <p className="muted small">The {parts.sheet.label.toLowerCase()} are what the sparse autoencoder reads: each cell is one {unit}, always in the same place, in order of its number, brighter the further from its usual level.
+        {byFeature && canColour ? ` Coloured by the feature that puts most into it: the four strongest have the colours in the reading, the rest are grey.` : ` Blue is above that ${unit}'s usual level, red below.`}{said ? " " + said : ""}</p>
       <div className="sheetrow">
-        {row ? <SheetCanvas glow={glow} marks={marks} cell={glow.length > 6000 ? 5 : 9} theme={theme} unit={parts.sheet.unit ?? "unit"} label={`${parts.sheet.label} for this token`}
-          onCell={i => openUnit(parts.sheet.id, i)} raw={i => `${fmt(+row.values[i].toPrecision(3))}${level ? `, usually ${fmt(+level[i].toPrecision(3))}` : ""}`} />
-          : <div className="sheet empty" style={{ width: 576, height: 432 }} />}
+        {row ? <SheetCanvas glow={glow} marks={marks} cell={glow.length > 6000 ? 4 : 6} theme={theme} unit={unit} label={`${parts.sheet.label} for this token`}
+          hue={hue} rings={misses} onCell={i => openUnit(parts.sheet.id, i)} raw={cellSays} />
+          : <div className="sheet empty" style={{ width: 384, height: 288 }} />}
         <div className="reading">
+          {fired?.rebuilt && <div className="upto" aria-label="How much of the pattern the strongest features rebuild">
+            <h3>How much the strongest features rebuild</h3>
+            {([["the strongest", fired.rebuilt.top1], ["the strongest 3", fired.rebuilt.top3], [`all ${fired.units.length}`, fired.rebuilt.all]] as [string, number][]).map(([what, v]) =>
+              <div key={what} className="r"><span className="muted">{what}</span><span className="pbar wide"><b style={{ width: pct(Math.max(0, v)) }} /></span><b>{pct(v)}</b></div>)}
+          </div>}
           <h3>The reading: what this pattern decodes to</h3>
           {reading.length ? <ol>{reading.map(([u, v, w]) => {
-            const k = picked.indexOf(u);
+            const k = picked.indexOf(u), it = info.get(u);
             return <li key={u}><button className={"feat" + (k >= 0 ? " on" : "")} aria-pressed={k >= 0} onClick={() => choose(u)} style={k >= 0 ? { borderColor: `var(${colours[k]})` } : undefined}
               data-tip={k >= 0 ? "Drawn on the sheet. Click to take it off." : "Draw this feature's own pattern on the sheet"}>
-              <span className="bar"><b style={{ width: `${100 * Math.abs(v) / most}%` }} /></span>
-              <span className="mono words">{w?.length ? w.slice(0, 3).map(showToken).join(" ") : <span className="muted">no words</span>}</span>
-              <span className="muted num">{fmt(+v.toPrecision(3))}</span><span className="muted num">#{u}</span></button>
+              <span className="bar"><b style={{ width: `${100 * Math.abs(v) / most}%`, background: hueOf(u) }} /></span>
+              <span className="mono words">{w?.length ? w.slice(0, 3).map(showToken).join(" ") : <span className="muted">no words</span>}
+                {(shared.get(u) ?? 0) > 1 && <span className="tag" data-tip={`Also on for ${shared.get(u)! - 1} other token${shared.get(u) === 2 ? "" : "s"} of the text`}>shared</span>}</span>
+              <span className="muted num">{fmt(+v.toPrecision(3))}</span>
+              <span className="muted num" data-tip={it ? `${pct(it[2])} of this token's firing; rebuilds ${pct(it[3])} of the pattern alone` : undefined}>{it ? pct(it[2]) : ""}</span>
+              <span className="muted num">#{u}</span></button>
               <button className="small ghost" aria-label={`open feature ${u}`} data-tip="This feature's page" onClick={() => openUnit(parts.features.id, u)}>›</button></li>;
           })}</ol> : <p className="muted small">No feature is on for this token.</p>}
           {picked.length > 0 && <div className="legend">{picked.map((u, k) => <span key={u}><i className="swatch box" style={{ borderColor: `var(${colours[k]})` }} />{nameOf(u)}
             {patterns[u] === null || (patterns[u] && !patterns[u]!.all) ? <span className="muted"> (this scanner does not send whole patterns)</span> : ""}</span>)}
-            {marks.length > 1 && <span><i className="swatch box" style={{ borderColor: "var(--fg)" }} />{shared} cell{shared === 1 ? "" : "s"} in both</span>}</div>}
-          <p className="muted small">Click a feature to draw its pattern on the sheet: an outline round the cells that carry half of it. Click a second to set the two against each other. A feature lighting up shows it is related to the text, not that it causes anything.</p>
+            {marks.length > 1 && <span><i className="swatch box" style={{ borderColor: "var(--fg)" }} />{both} cell{both === 1 ? "" : "s"} in both</span>}</div>}
+          <p className="muted small">{fired ? "Beside each feature, its share of this token's firing. " : ""}Click a feature to draw its pattern on the sheet: an outline round the cells that carry half of it. Click a second to set the two against each other. A feature lighting up shows it is related to the text, not that it causes anything.</p>
         </div>
       </div>
     </section>

@@ -92,6 +92,23 @@ class Kit(unittest.TestCase):
         again = scankit.SparseAutoencoder(detector, bias, pattern, usual, reads="neurons", probe=lambda: self.fail("worked out again"), probe_words=names, test="thirty made-up rows", cache=cache)
         self.assertEqual(again.words([u]), sae.words([u])); self.assertEqual(len(made), 1)                # kept on disk, not worked out twice
 
+    def test_how_a_tokens_features_rebuild_it(self):
+        rng = np.random.default_rng(1)
+        detector, pattern, usual, bias = rng.normal(size=(40, 8)), rng.normal(size=(8, 40)), rng.normal(size=8), rng.normal(size=40) - 1
+        sae = scankit.SparseAutoencoder(detector, bias, pattern, usual, reads="neurons")
+        x = rng.normal(size=8); out = sae.run(x[None]); f = out["sae.features"][0]
+        got = sae.firing(x, f)
+        on = sorted(np.nonzero(f)[0], key=lambda u: -f[u])
+        self.assertEqual([u for u, *_ in got["units"]], [int(u) for u in on])
+        self.assertAlmostEqual(sum(s for _, _, s, _ in got["units"]), 1, places=3)
+        base = ((x - usual) ** 2).sum()
+        self.assertAlmostEqual(got["rebuilt"]["all"], 1 - ((x - out["sae.rebuild"][0]) ** 2).sum() / base, places=3)      # all of them: the rebuild itself
+        self.assertAlmostEqual(got["units"][0][3], got["rebuilt"]["top1"], places=4)
+        u = 5; parts = pattern[u, on] * f[on]
+        self.assertEqual(sae.owner(f)[u], int(on[int(np.argmax(np.abs(parts)))]))
+        self.assertEqual(sae.owner(np.zeros(40)), [None] * 8)
+        self.assertEqual(sae.firing(x, np.zeros(40))["units"], [])
+
     def test_outputs_of_named_layers_are_collected(self):
         class Layer:                                                    # stands in for a PyTorch module
             def __init__(self): self.hooks = []

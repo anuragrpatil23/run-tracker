@@ -138,6 +138,11 @@ Reply:
 - `grid` is what the view draws for the node. For a `token` node it is the union of every token's top units, strongest first and at most 48 of them, as `units`; `values` with one row per token and one number per unit, so that a unit outside a token's own top still has its value; and `words`, one list or `null` per unit, or `null` for the whole node if it is not `described`. For a `token-pair` node `grid` is the full n by n table, row for the token looking and column for the token looked at, and the node has no `top` or `size`.
 - `on` is, per token, how many units are not zero, for `sparse` nodes.
 - `next` is what the model would write next, when it can say.
+- `firing` is optional, on a `sparse` node that is a sparse autoencoder's features, per token: how that token's features rebuild what the autoencoder read. `total` is the sum of the features that are on. `units` lists every feature that is on, strongest first, as `[unit, value, share of the firing, rebuilt alone]`, where the share is value / `total` and rebuilt alone is 1 − |x − usual − v·d|² / |x − usual|² for that feature's pattern d. `rebuilt` is the same measure for the strongest one, the strongest three and all of them together: `{"top1": 0.72, "top3": 0.88, "all": 0.95}`; `all` is the share of the token's pattern the rebuild gets. A feature on in more than one token's `units` fires on more than one token of the text.
+
+  ```json
+  "firing": [{"total": 21.2, "units": [[14925, 9.34, 0.44, 0.72], [977, 1.2, 0.057, 0.09]], "rebuilt": {"top1": 0.72, "top3": 0.88, "all": 0.95}}]
+  ```
 - `run` names this result for follow-up questions. The scanner keeps at least the last 8 results and answers `unknown_run` for older ones.
 - Text longer than `max_tokens` gets `too_long` with the limit in the message.
 
@@ -150,6 +155,8 @@ The plain numbers for one token at one node, a slice of units at a time, for dra
 ```
 
 `usual` is included where the scanner knows each unit's usual level.
+
+`owner` is optional, for the node a sparse autoencoder reads: per unit, the feature that puts the most into that unit's rebuilt value for this token (the largest |f_j · d_j[unit]| among the features on), or `null` where no feature is on.
 
 For a `token-pair` node, leave out `from` and `count` and the reply is that token's row over the tokens: `{"values": [0.02, 0.4, ...]}`.
 
@@ -251,9 +258,11 @@ Decided 2026-10-07. The grid of numbers is hard to take in because nothing in it
 - Chooses two features. Both patterns are drawn, in two colours, with the cells they share marked. This is how "sky" and "sea" are seen to use some of the same neurons.
 - Clicks a cell. The neuron's page opens, with the features that lean on it.
 - Contrasts two texts. Two sheets side by side for the paired tokens, and a third showing the difference.
-- Switches the sheet between what went in and the sparse autoencoder's rebuild of it, to see how close the rebuild is.
+- Sees what the rebuild misses, on the one sheet. What went in is drawn once; a ring is drawn round each cell where the rebuild is far from it, larger the further, so cells that match stay plain. Above the sheet, the share of the pattern rebuilt. The rebuild itself is not drawn beside it: when it is good the two look the same and the misses cannot be seen. (Changed 2026-10-14 from a switch between the two.)
+- Colours the sheet by feature (the default) or by sign. By feature, each cell takes the colour of the feature that puts most into it (`owner`), the four strongest features in four colours matching the reading, the rest grey; brightness is still how far the cell is from its usual level.
+- Reads each token's features as one bar: the token's firing split into a segment per feature, longest first. The strongest feature in one colour, features also on in other tokens of the text in a muted one, the rest grey. A token with one clear feature is one long segment; a spread-out token is many short ones. The table of tokens against features is behind a switch.
 
-**What it needs from the scanner.** Nothing new as a route. The sheet for a token is `values` for the node the sparse autoencoder reads, with `usual`. The reading is that token's `top` at the features node. A feature's pattern is one addition to the `unit` reply: `made_of.all` and `listens_to.all`, each a list with one number per unit of the node read, scaled so that the squares add to 1. Both are optional; a scanner that leaves them out gets the sheet and the reading without the constellations. Which node is the sheet: the one named by `made_of.node`, or, before any feature is opened, the node that a `reads` edge leaves from in the graph.
+**What it needs from the scanner.** Nothing new as a route. The sheet for a token is `values` for the node the sparse autoencoder reads, with `usual`. The rings are what went in against `values` for the rebuild node. The bars, the share rebuilt and the colours by feature come from `firing` and `owner`; without them the view falls back to the table, the sign colours and no headline. The reading is that token's `top` at the features node. A feature's pattern is one addition to the `unit` reply: `made_of.all` and `listens_to.all`, each a list with one number per unit of the node read, scaled so that the squares add to 1. Both are optional; a scanner that leaves them out gets the sheet and the reading without the constellations. Which node is the sheet: the one named by `made_of.node`, or, before any feature is opened, the node that a `reads` edge leaves from in the graph.
 
 **A flat map of the features was tried and set aside.** Placing all 32,768 features so that alike patterns sit together keeps about one in five of each feature's nearest neighbours, with our own layout and with UMAP alike, on the first block and on block 7. Small clumps are real (near sky: oceans, shore, valley, beach) and there are no regions that could be named. The features point in nearly unrelated directions, which is what lets so many fit, and that cannot be laid flat. `Learn-AI/train-sparse-autoencoder/layout.py` holds the layout and the measure. If it is ever shown, it should carry that figure on it.
 

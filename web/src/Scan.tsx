@@ -10,7 +10,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BarData } from "./Bars3D";
 import { api, cssColour, enc, fmt, Run, sizeText, useStored } from "./lib";
-import { ContrastSheets, rowOf, sheetParts, SheetView, StepSheet } from "./Sheet";
+import { ContrastSheets, Firing, rowOf, sheetParts, SheetView, StepSheet } from "./Sheet";
 
 /* three.js comes with the 3D drawing, and only when it is shown. If that piece cannot be fetched (the app was updated
    while this page stayed open, and the piece it knew about is gone), the drawing reports failure and the flat one is
@@ -29,7 +29,7 @@ type Node = { id: string; label: string; about?: string; group?: string | null; 
 type Graph = { title: string; groups?: { id: string; label: string }[]; nodes: Node[]; edges: { from: string; to: string; kind?: string }[] };
 type Snapshot = { id: string; label: string; run?: string | null; step?: number; of?: number; available?: boolean; state?: string; file?: string };
 type Top = [number, number, (string[] | null)?];
-type NodeResult = { size?: number[]; on?: number[]; top?: Top[][]; head?: number[][]; grid?: { units: number[]; values: number[][]; words?: (string[] | null)[] } | number[][] };
+type NodeResult = { size?: number[]; on?: number[]; top?: Top[][]; firing?: Firing[]; head?: number[][]; grid?: { units: number[]; values: number[][]; words?: (string[] | null)[] } | number[][] };
 type Result = { run: string; snapshot: string; tokens: { i: number; text: string }[]; nodes: Record<string, NodeResult>; next?: { text: string; chance: number }[] };
 type Side = [number, number, (string[] | null)?][];
 type Contrast = { run_a: string; run_b: string; tokens_a: { i: number; text: string }[]; tokens_b: { i: number; text: string }[]; pairs: [number, number][];
@@ -38,6 +38,37 @@ type Health = { name: string; device?: string; max_tokens?: number; supports?: s
 type Problem = { code: string; message: string };
 
 const showToken = (t: string) => t.replace(/^ +/, m => "·".repeat(m.length)).replace(/\n/g, "↵") || "∅";
+
+/* Each token's firing as one bar: a segment per feature that is on, longest first, each as long as its value, so a
+   token with one clear feature reads as one long segment and a spread-out token as many short ones. The strongest is in
+   one colour, features also on for another token of the text in a muted one, the rest grey. Bars share one scale. */
+function TokenBars({ tokens, firing, top, onUnit }: { tokens: string[]; firing: Firing[]; top?: Top[][]; onUnit: (u: number) => void }) {
+  const longest = Math.max(1e-9, ...firing.map(f => f.total));
+  const tokensOn = new Map<number, number>();
+  firing.forEach(f => f.units.forEach(([u]) => tokensOn.set(u, (tokensOn.get(u) ?? 0) + 1)));
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  return (
+    <div className="tokenbars">{firing.map((f, t) => {
+      const [u, v, share, alone] = f.units[0] ?? [];
+      const words = top?.[t]?.find(r => r[0] === u)?.[2];
+      return <div key={t} className="tb">
+        <span className="mono tok">{showToken(tokens[t] ?? "")}</span>
+        <div className="body">
+          <div className="track"><div className="fill" style={{ width: `${100 * f.total / longest}%` }}>
+            {f.units.map(([w, val, sh, al], j) => <button key={w} className={j === 0 ? "first" : (tokensOn.get(w) ?? 0) > 1 ? "shared" : ""} style={{ flexGrow: val }}
+              aria-label={`feature ${w}`} title={`#${w}: ${fmt(val)}, ${pct(sh)} of the firing, rebuilds ${pct(al)} alone${(tokensOn.get(w) ?? 0) > 1 ? `; on for ${tokensOn.get(w)} tokens` : ""}`} onClick={() => onUnit(w)} />)}
+          </div></div>
+          {u != null ? <div className="small say"><b>#{u}</b>{words?.length ? <>{" · "}<span className="mono">{words.slice(0, 2).map(showToken).join(" ")}</span></> : null}
+            {` · ${fmt(+v.toPrecision(3))} · ${pct(share)} of the firing · rebuilds ${pct(alone)} alone · `}<span className="muted">{f.units.length} on{f.rebuilt ? `, all of them rebuild ${pct(f.rebuilt.all)}` : ""}</span></div>
+            : <div className="small muted say">no feature is on</div>}
+        </div>
+      </div>;
+    })}
+    <p className="muted small"><i className="swatch" style={{ background: "var(--s1)" }} />the token's strongest feature <i className="swatch" style={{ background: "var(--shared)" }} />on for more than one token of the text
+      <i className="swatch" style={{ background: "var(--faint)" }} />the rest. Point at a segment for its numbers; click it for the feature.</p>
+    </div>
+  );
+}
 
 /* The grid for one step: tokens down the side, units across. Blue above zero, red below, deeper the further from it. */
 function Grid({ tokens, columns, values, heads, onUnit, label }:
@@ -194,6 +225,7 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
   const [node, setNode] = useState("");
   const [token, setToken] = useState(0);
   const [pair, setPair] = useState<number | null>(null);
+  const [featureBars, setFeatureBars] = useStored("scan.featureBars", true);  // a sparse step's tokens as bars of their features, or the table
   const [wantSolid, setSolid] = useStored("scan.bars", true);          // the drawing as bars in three dimensions, or flat
   const [flatOnly, setFlatOnly] = useState(false);                      // set when the 3D drawing failed on this page; the choice itself is kept
   const solid = wantSolid && !flatOnly;
@@ -400,7 +432,7 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
           {result.tokens.map(t => <button key={t.i} className="tok mono" aria-pressed={t.i === token} onClick={() => setToken(t.i)}>{showToken(t.text)}</button>)}
           {result.next?.length ? <span className="muted small">would write next: {result.next.slice(0, 3).map(n => `“${showToken(n.text)}” ${Math.round(n.chance * 100)}%`).join(", ")}</span> : null}
         </div>
-        {graph && sheetParts(graph) && <SheetView project={project} graph={graph} run={result.run} tokens={result.tokens} top={result.nodes[sheetParts(graph)!.features.id]?.top as any}
+        {graph && sheetParts(graph) && <SheetView project={project} graph={graph} run={result.run} tokens={result.tokens} top={result.nodes[sheetParts(graph)!.features.id]?.top as any} firing={result.nodes[sheetParts(graph)!.features.id]?.firing}
           token={token} snapshot={primary} openUnit={(n, u) => setUnit({ node: n, unit: u })} theme={theme} />}
       </>}
       {graph && <><div className="row"><h2>{graph.title}</h2><span className="muted small">{result && !contrasting ? (solid ? "Each bar is a step: tokens down, the step's units across, a tile taller and brighter the further from zero. Drag to turn it. Click a tile to open its row as a sheet and its unit beside it."
@@ -419,10 +451,14 @@ export function Scan({ project, theme, runs }: { project: string; theme: string;
 
       {!contrasting && result && <>
         {Object.entries(results).map(([id, r]) => {
-          const g = gridOf(r);
+          const g = gridOf(r), firing = picked?.sparse ? r.nodes[node]?.firing : undefined;
           return <section key={id} className="panel">
-            <div className="row"><h2>{picked?.label ?? node}</h2>{Object.keys(results).length > 1 && <span className="muted small">{label(id)}</span>}</div>
-            {!g ? <p className="muted small">The scanner recorded nothing at this step. Choose another in the drawing.</p>
+            <div className="row"><h2>{picked?.label ?? node}</h2>{Object.keys(results).length > 1 && <span className="muted small">{label(id)}</span>}
+              {firing && <><span className="grow" /><div className="seg" role="group" aria-label="How the features are shown">
+                <button className="small" aria-pressed={featureBars} data-tip="Each token's firing as one bar, a segment per feature" onClick={() => setFeatureBars(true)}>Bars</button>
+                <button className="small" aria-pressed={!featureBars} data-tip="Tokens against the strongest features, as numbers" onClick={() => setFeatureBars(false)}>Table</button></div></>}</div>
+            {firing && featureBars ? <TokenBars tokens={r.tokens.map(t => t.text)} firing={firing} top={r.nodes[node]?.top} onUnit={u => setUnit({ node, unit: u })} />
+              : !g ? <p className="muted small">The scanner recorded nothing at this step. Choose another in the drawing.</p>
               : <Grid tokens={g.tokens} columns={g.columns} values={g.values} heads={g.heads} label={`${picked?.label ?? node}: tokens against its strongest units`} onUnit={g.units ? u => setUnit({ node, unit: u }) : undefined} />}
             {g?.units && can("values") && id === primary && picked?.per !== "token-pair" && <>
               <p className="small"><span className="muted">The whole row for</span> <span className="mono">{showToken(r.tokens[token]?.text ?? "")}</span></p>
