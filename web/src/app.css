@@ -207,6 +207,15 @@ nav.top [data-tip]::after{white-space:normal;width:max-content;max-width:360px}
 .panel.sweep{margin-top:22px;padding-top:26px;border-top:1px solid var(--rule)}
 .modal-box.narrow{width:min(560px,100%)} .modal-box.narrow input{width:100%} .modal-box.narrow button[type=submit]{border-color:var(--fg)}
 .toc>button{align-self:flex-start}
+/* every chart's value at the pointer, under the contents while the pointer is on a chart */
+.toc:has(.atpointer)>ol{flex:0 1 auto;max-height:22vh} .atpointer{flex:1 1 auto;overflow:auto;border-top:1px solid var(--rule);padding-top:10px;font-size:12px;min-height:0}
+.atpointer .x{color:var(--muted);margin-bottom:6px} .atpointer .x b{color:var(--fg);font-weight:600}
+.atpointer ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.atpointer .name{color:var(--soft);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .atpointer li.here .name{color:var(--fg);font-weight:600}
+.atpointer .r{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:7px;align-items:center;color:var(--muted);white-space:nowrap}
+.atpointer .r i{width:10px;height:2px;border-radius:1px} .atpointer .r i.dashed{height:0;border-top:2px dashed}
+.atpointer .r span{overflow:hidden;text-overflow:ellipsis} .atpointer .r b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+@media (max-width:900px){ .atpointer{display:none} }
 nav.top label.project{font-size:12.5px} nav.top label.project select{border-color:transparent;background-color:var(--wash);font-weight:500;color:var(--fg);padding:5px 26px 5px 10px}
 nav.top label.project[data-tip]::after{left:0;right:auto}
 

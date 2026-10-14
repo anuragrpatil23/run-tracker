@@ -4,13 +4,50 @@
    "train" and "sky"); names with neither go under Main; samples of the machine go last. Any chart can be pinned, which
    puts it in a section of its own at the top. Down the left is a table of contents that stays in view: the sections,
    and under each open one its charts. Click an entry to go there; the one being read is marked. Only Pinned and Main
-   start open. */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { About, Drawn, FormulaForm, Icon, Panel, View } from "./Chart";
-import { ruleFor, useStored } from "./lib";
+   start open.
+
+   While the pointer is on a chart, every chart follows it with its hairline, and a panel under the contents lists each
+   chart's value at that point for each run: one place to read them all, so no chart is covered by a box of numbers. */
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { About, Drawn, FormulaForm, Icon, Panel, Reading, View } from "./Chart";
+import { fmt, ruleFor, useStored } from "./lib";
 import { MediaPanel } from "./Media";
 
 type Section = { id: string; title: string; about: string; keys: string[] };
+/* What each chart reads at the pointer. Charts tell it on every move of the pointer; the panel is redrawn at most once a frame. */
+class Readings {
+  at = new Map<string, { rank: number; r: Reading }>();
+  seen = 0;
+  private frame = 0;
+  private subs = new Set<() => void>();
+  set(key: string, rank: number, r: Reading | null) {
+    if (r) this.at.set(key, { rank, r }); else if (!this.at.delete(key)) return;
+    if (!this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; this.seen++; this.subs.forEach(f => f()); });
+  }
+  subscribe = (f: () => void) => { this.subs.add(f); return () => { this.subs.delete(f); }; };
+}
+
+const colourOf = (slot: number) => (slot >= 1 && slot <= 8 ? `var(--s${slot})` : "var(--faint)");
+
+function AtPointer({ readings }: { readings: Readings }) {
+  useSyncExternalStore(readings.subscribe, () => readings.seen);
+  const all = [...readings.at.values()].sort((a, b) => a.rank - b.rank).map(e => e.r);
+  const here = all.find(r => r.here);
+  if (!here) return null;
+  return (
+    <section className="atpointer" aria-label="Every chart at the pointer">
+      <div className="x">{here.xLabel} <b>{fmt(here.x)}</b></div>
+      <ol>{all.map((r, i) => (
+        <li key={i} className={r.here ? "here" : ""}>
+          <div className="name">{r.title}{(r.xLabel !== here.xLabel || Math.abs(r.x - here.x) > Math.abs(here.x) * 0.01) && <span className="muted"> at {r.xLabel} {fmt(r.x)}</span>}</div>
+          {r.rows.filter(w => w.v != null).map((w, j) => (
+            <div key={j} className="r" title={w.label}><i className={w.dashed ? "dashed" : ""} style={w.dashed ? { borderColor: colourOf(w.slot) } : { background: colourOf(w.slot) }} />
+              <span>{w.label}</span><b>{fmt(w.v)}</b></div>))}
+        </li>))}</ol>
+    </section>
+  );
+}
+
 const SIZES = { s: { min: 250, height: 140 }, m: { min: 360, height: 200 }, l: { min: 560, height: 300 } };
 
 /* Names that say which data a number was measured on. A number logged under two of them ("train/loss" and "val/loss") is
@@ -36,6 +73,7 @@ export function ChartSections({ numbers, clocks, runs, view, sync, media = [] }:
   const [find, setFind] = useState("");
   const [adding, setAdding] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const readings = useRef(new Readings()).current;
 
   const sections = useMemo(() => {
     // Rows seen and minutes are axes, not charts. The loss comes first, then other charts worked out by formula,
@@ -120,9 +158,10 @@ export function ChartSections({ numbers, clocks, runs, view, sync, media = [] }:
         </div>
         <button className="small" data-tip="For a number the script did not log but that follows from ones it did, such as a loss that is the sum of two terms" onClick={() => setAdding(true)}>New chart from a formula</button>
         {adding && <FormulaForm view={view} names={numbers.filter(k => !k.startsWith("sys/") && !view.formulas[k])} close={() => setAdding(false)} />}
+        <AtPointer readings={readings} />
       </nav>
       <div className="secbody">
-      {sections.map(s => {
+      {sections.map((s, si) => {
         const keys = matching(s);
         if (q && !keys.length) return null;
         return (
@@ -135,8 +174,9 @@ export function ChartSections({ numbers, clocks, runs, view, sync, media = [] }:
               <About name={"section:" + s.id} fallback={s.about} view={view} />
             </div>
             {isOpen(s) && <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill,minmax(min(100%,${SIZES[size].min}px),1fr))` }}>
-              {keys.map(k => {
-                const shared = { runs, view, height: SIZES[size].height, pinned: pinned.includes(k), onPin: () => pin(k) };
+              {keys.map((k, ki) => {
+                const read = (r: Reading | null) => readings.set(s.id + ":" + k, si * 10000 + ki, r);
+                const shared = { runs, view, height: SIZES[size].height, pinned: pinned.includes(k), onPin: () => pin(k), read };
                 if (kindOf.has(k)) return <MediaPanel key={k} name={k} title={shortName(k, s.id)} kind={kindOf.get(k)!} onHide={() => setHidden([...hidden, k])} {...shared} height={SIZES[size].height + 40} />;
                 if (!k.startsWith("splits:")) return <Panel key={k} name={k} title={shortName(k, s.id)} sync={s.id === "sys" ? sync + "-sys" : sync} onHide={() => setHidden([...hidden, k])} {...shared} />;
                 // one chart for a number measured on several sets of data: the training one solid, the others dashed

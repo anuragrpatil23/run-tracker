@@ -71,11 +71,11 @@ export function bundle(label: string, slot: number, members: Line[]): Line {
   return { label, slot, x, y, lo, hi, members: members.length };
 }
 
-function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values: (number | null)[]) => void, quiet: boolean): uPlot.Plugin {
+function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values: (number | null)[], here: boolean) => void, quiet: boolean): uPlot.Plugin {
   let tip: HTMLDivElement, near = -1;
   const show = (u: uPlot) => {
     const { left, idx } = u.cursor;
-    if (idx == null || left == null || left < 0) { tip.hidden = true; onHover(null, []); return; }
+    if (idx == null || left == null || left < 0) { tip.hidden = true; onHover(null, [], false); return; }
     const rows: { label: string; colour: string; v: number; i: number }[] = [];
     const values: (number | null)[] = [];
     cols.forEach((c, i) => {
@@ -86,7 +86,7 @@ function readout(cols: Col[], xLabel: string, onHover: (x: number | null, values
       values[c.line] = v ?? null;
       if (v != null) rows.push({ label: c.label, colour: c.colour, v, i: i + 1 });
     });
-    onHover(u.data[0][idx], values);
+    onHover(u.data[0][idx], values, u.over.matches(":hover"));
     tip.replaceChildren();
     const head = document.createElement("div"); head.className = "x";
     const at = document.createElement("b"); at.textContent = fmt(u.data[0][idx]);
@@ -158,13 +158,15 @@ function decades(_u: uPlot, _axis: number, lo: number, hi: number): number[] {
 type ChartProps = {
   lines: Line[]; xLabel: string; logY: boolean; smooth: number; syncKey?: string; height: number; theme: string;
   range?: Range; onRange?: (r: Range) => void; trim?: boolean; onHover?: (x: number | null, values: (number | null)[]) => void;
+  /* told the values at the shared pointer like onHover, but leaves the chart its own tip; `here` is the chart under the pointer */
+  onRead?: (x: number | null, values: (number | null)[], here: boolean) => void;
 };
 
-export function Chart({ lines, xLabel, logY, smooth, syncKey, height, theme, range, onRange, trim, onHover }: ChartProps) {
+export function Chart({ lines, xLabel, logY, smooth, syncKey, height, theme, range, onRange, trim, onHover, onRead }: ChartProps) {
   const host = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
-  const live = useRef({ onRange, onHover, range });
-  live.current = { onRange, onHover, range };
+  const live = useRef({ onRange, onHover, onRead, range });
+  live.current = { onRange, onHover, onRead, range };
   useEffect(() => {
     const el = host.current;
     if (!el || !lines.some(l => l.x.length)) return;
@@ -222,7 +224,7 @@ export function Chart({ lines, xLabel, logY, smooth, syncKey, height, theme, ran
         // A drag across one chart is a zoom for every chart; the others are told and follow.
         setSelect: [uu => { if (uu.select.width > 3) live.current.onRange?.([uu.posToVal(uu.select.left, "x"), uu.posToVal(uu.select.left + uu.select.width, "x")]); }],
       },
-      plugins: [endDots(cols, page), readout(cols, xLabel, (x, v) => live.current.onHover?.(x, v), !!live.current.onHover)],
+      plugins: [endDots(cols, page), readout(cols, xLabel, (x, v, here) => { live.current.onHover?.(x, v); live.current.onRead?.(x, v, here); }, !!live.current.onHover)],
     }, data, el);
     const reset = () => live.current.onRange?.(null);
     u.over.addEventListener("dblclick", reset);
@@ -242,6 +244,9 @@ export function Chart({ lines, xLabel, logY, smooth, syncKey, height, theme, ran
   if (!lines.some(l => l.x.length)) return <div className="empty" style={{ height }}>nothing logged against {xLabel}</div>;
   return <div ref={host} className="plot" role="img" aria-label={`chart against ${xLabel}`} />;
 }
+
+/* What one chart reads at the shared pointer, for the panel that lists every chart's value at once (Sections.tsx). */
+export type Reading = { title: string; xLabel: string; x: number; here: boolean; rows: { label: string; slot: number; dashed: boolean; v: number | null }[] };
 
 export type Drawn = { id: string; name: string; slot: number; group?: string };
 export type View = {
@@ -363,9 +368,9 @@ function Inspector({ name, lines, xLabel, logY, view, sync, close }:
 /* One chart in the grid: fetches its own numbers once it scrolls into view, and again when the runs grow. */
 /* `also` puts further logged names on the same chart, dashed: the same number on held-out data beside training data.
    Each run keeps its colour across them; `first` is what the solid line is called ("train"). */
-export function Panel({ name, title, runs, view, onHide, sync, height = 200, pinned, onPin, also = [], first = "", chartId }:
+export function Panel({ name, title, runs, view, onHide, sync, height = 200, pinned, onPin, also = [], first = "", chartId, read }:
   { name: string; title?: string; runs: Drawn[]; view: View; onHide?: () => void; sync?: string; height?: number; pinned?: boolean; onPin?: () => void;
-    also?: { key: string; label: string }[]; first?: string; chartId?: string }) {
+    also?: { key: string; label: string }[]; first?: string; chartId?: string; read?: (r: Reading | null) => void }) {
   const [ref, seen] = useSeen<HTMLElement>();
   const [data, setData] = useState<Record<string, Record<string, Series>> | null>(null);
   // "#/?inspect=<name>" opens that chart's inspector straight away, so a link can point at one chart
@@ -403,6 +408,13 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
   const stands = !latest.length ? "" : (best ? best + " " : "") + (latest.length === 1 || Math.min(...latest) === Math.max(...latest) ? fmt(latest[0])
     : `${fmt(Math.min(...latest))} to ${fmt(Math.max(...latest))}`);
   const close = useCallback(() => setBig(false), []);
+  const said = useRef({ read, lines, xLabel, title: title ?? name });
+  said.current = { read, lines, xLabel, title: title ?? name };
+  const onRead = useCallback((at: number | null, values: (number | null)[], here: boolean) => {
+    const { read, lines, xLabel, title } = said.current;
+    read?.(at == null ? null : { title, xLabel, x: at, here, rows: lines.map((l, i) => ({ label: l.label, slot: l.slot, dashed: !!l.dashed, v: values[i] ?? null })) });
+  }, []);
+  useEffect(() => () => said.current.read?.(null), []);
   return (
     <figure className="chart" ref={ref} data-chart={chartId ?? name}>
       <figcaption>
@@ -419,7 +431,7 @@ export function Panel({ name, title, runs, view, onHide, sync, height = 200, pin
       <About name={name} view={view} />
       {data
         ? <Chart lines={lines} xLabel={xLabel} logY={logY} smooth={view.smooth} syncKey={sync} height={height} theme={view.theme}
-            range={x === view.x ? view.range : undefined} onRange={x === view.x ? view.setRange : undefined} trim={view.trim} />
+            range={x === view.x ? view.range : undefined} onRange={x === view.x ? view.setRange : undefined} trim={view.trim} onRead={read && onRead} />
         : <div className="empty" style={{ height }} />}
       {editing && <FormulaForm view={view} edit={name} close={() => setEditing(false)} />}
       {big && <Inspector name={name} lines={lines} xLabel={xLabel} logY={logY} view={view} sync={sync} close={close} />}
