@@ -85,7 +85,10 @@ run.finish({"orig": 0.869, "self": 0.925})        # results.json, and status fin
 - The prediction is read from the experiment page's Prediction section at the run's start and copied into `meta.json`, so it is fixed at the moment of the run even if the page changes later.
 - W&B runs keep working exactly as now. They are shown by their name and project, never by the `offline-run-...` folder name.
 
-**Models do not stay on the cluster.** Anurag's rule (2026-11-09): no downloaded model is kept on Minerva once the runs that need it are done. `run.model()` already records which models a run used, so `labbook clean-models <project>` lists the models the project's finished runs used that are still in the cluster's cache, and deletes them after a yes: the `models--...` folder and the blobs it links to, which is where the space actually is. It refuses while any of the project's runs is still running. Trained adapters are the run's own output and are not touched.
+**Nothing lasting stays on the cluster.** Anurag's rules (2026-11-09): no downloaded model is kept on Minerva once the runs that need it are done, and logs are kept on the laptop, not the cluster. `labbook clean <project>` does both, after a yes, and refuses while any of the project's runs is still running:
+- **Models:** `run.model()` records which models a run used, so it lists those still in the cluster's cache and deletes each one's `models--...` folder and the blobs it links to, which is where the space actually is.
+- **Logs:** it checks that the sync has brought each finished run's `log.jsonl`, `system.jsonl` and `output.log` to the laptop with matching checksums, then deletes the cluster's copies. Run records (`meta.json`, `results.json`, `trace.md` and the rest) stay, as they are what the repo commits.
+- Trained adapters are the run's own output and are not touched.
 
 The copy of `tracker.py` vendored in `Learn-AI/train-sparse-autoencoder/` is replaced by the new file, and its runs keep syncing as before.
 
@@ -103,7 +106,7 @@ So one source per project, set once: `labbook source add introspection --ssh min
 
 A source that finds nothing says so, as does one where a "run" holds none of the run files. The sync reports what it found per source, instead of quietly showing the wrong things. The four paused `/tmp` trial sources and `sae-local` are removed once Anurag agrees.
 
-The sync still only reads on the cluster, still uses the existing `ssh minerva` connection in batch mode, and still leaves files over 2 MB behind except logs.
+The sync still only reads on the cluster (only `labbook clean` deletes there, after a yes), still uses the existing `ssh minerva` connection in batch mode, and still leaves files over 2 MB behind except logs.
 
 ## The viewer
 
@@ -190,7 +193,7 @@ Each step leaves everything working.
    - Fold the small labbook repo into this one with its history, as circuit-awareness was folded into introspection.
    - Delete the small labbook repo (Anurag confirms), then rename this repo `labbook` on GitHub. The old name redirects.
    - Rename the app's name and command (`rt` becomes `labbook`, `rt` kept as an alias for a while) and the data folder (`~/run-tracker-data` becomes `~/labbook-data`, moved on first start).
-2. **The writer.** `Run` with experiment and label, `trace`, `input`, `model`, `strict`, `results.json`, `labbook path`, and `labbook clean-models`. Tests for each. Copy it into Learn-AI and check the SAE runs still sync.
+2. **The writer.** `Run` with experiment and label, `trace`, `input`, `model`, `strict`, `results.json`, `labbook path`, and `labbook clean`. Tests for each. Copy it into Learn-AI and check the SAE runs still sync.
 3. **Finding runs by shape.** Project sources, the per-source report, and the clean-up of old sources. Move introspection onto the new writer, its job script onto `output.log`, and its existing runs into the new layout.
 4. **The tree and the experiment page** in the viewer, with the web code moved into `lego_blocks` / `orchestrators` / `pages` as it is touched.
 5. **Views.** The contract, `labbook views build`, the shared blocks, and Explanations as the first view.
