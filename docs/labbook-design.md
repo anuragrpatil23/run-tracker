@@ -85,6 +85,8 @@ run.finish({"orig": 0.869, "self": 0.925})        # results.json, and status fin
 - The prediction is read from the experiment page's Prediction section at the run's start and copied into `meta.json`, so it is fixed at the moment of the run even if the page changes later.
 - W&B runs keep working exactly as now. They are shown by their name and project, never by the `offline-run-...` folder name.
 
+**Models do not stay on the cluster.** Anurag's rule (2026-11-09): no downloaded model is kept on Minerva once the runs that need it are done. `run.model()` already records which models a run used, so `labbook clean-models <project>` lists the models the project's finished runs used that are still in the cluster's cache, and deletes them after a yes: the `models--...` folder and the blobs it links to, which is where the space actually is. It refuses while any of the project's runs is still running. Trained adapters are the run's own output and are not touched.
+
 The copy of `tracker.py` vendored in `Learn-AI/train-sparse-autoencoder/` is replaced by the new file, and its runs keep syncing as before.
 
 ## Finding runs
@@ -188,7 +190,7 @@ Each step leaves everything working.
    - Fold the small labbook repo into this one with its history, as circuit-awareness was folded into introspection.
    - Delete the small labbook repo (Anurag confirms), then rename this repo `labbook` on GitHub. The old name redirects.
    - Rename the app's name and command (`rt` becomes `labbook`, `rt` kept as an alias for a while) and the data folder (`~/run-tracker-data` becomes `~/labbook-data`, moved on first start).
-2. **The writer.** `Run` with experiment and label, `trace`, `input`, `model`, `strict`, `results.json`, `labbook path`. Tests for each. Copy it into Learn-AI and check the SAE runs still sync.
+2. **The writer.** `Run` with experiment and label, `trace`, `input`, `model`, `strict`, `results.json`, `labbook path`, and `labbook clean-models`. Tests for each. Copy it into Learn-AI and check the SAE runs still sync.
 3. **Finding runs by shape.** Project sources, the per-source report, and the clean-up of old sources. Move introspection onto the new writer, its job script onto `output.log`, and its existing runs into the new layout.
 4. **The tree and the experiment page** in the viewer, with the web code moved into `lego_blocks` / `orchestrators` / `pages` as it is touched.
 5. **Views.** The contract, `labbook views build`, the shared blocks, and Explanations as the first view.
