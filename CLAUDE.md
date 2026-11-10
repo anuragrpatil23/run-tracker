@@ -4,6 +4,9 @@ A tracker for training runs that are written to files on a cluster and looked at
 Read `README.md` for what it does and `docs/format.md` for the run folder, which is the contract
 between the three parts.
 
+This repo is becoming **labbook**: the lab notebook folded into the tracker. The plan, the order of work
+and what is done are in `docs/labbook-design.md`; read it before changing the writer, the sync or the viewer.
+
 ## Layout
 
 - `tracker.py` — the writer. One file, standard library only, must run on Python 3.8+ (the cluster).
