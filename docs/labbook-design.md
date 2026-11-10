@@ -57,10 +57,10 @@ Everything in [format.md](format.md) stays as it is: append-only, tolerant, old 
 | `meta.json` → `models` | each Hugging Face model or dataset used, with the revision from the local cache | the weights can change upstream under the same name |
 | `meta.json` → `code.strict` | whether the run refused uncommitted code | a strict run's commit is guaranteed to be the code that ran |
 | `trace.md` | one real example at each stage, the first time each stage is reached; rewritten as stages are added | the bugs that ruin a result live in what flows through: the exact prompt, the label, what the model said |
-| `output.log` | everything the job printed, stdout and stderr | logs live with their run, under its name |
+| `job.out`, `job.err` | everything the job printed, and the scheduler's summary | logs live with their run, under its name; kept out of git |
 | `results.json` | the run's final results, written by `finish()` | the numbers the experiment page shows, without reading the whole log |
 
-`output.log` gets there because the job script asks the writer for the run's folder before starting Python, and points the scheduler's output at it. The writer offers `labbook path <experiment> <label>` for that: it makes the folder and prints its path.
+`job.out` and `job.err` get there because the run's folder is named when the job is submitted, not when Python starts: `labbook submit <experiment> <label> <module> [SETTING=value] [scheduler options]` makes the folder, points the scheduler's output into it, and passes it to the writer as `LABBOOK_RUN_DIR`. The introspection repo does this today with `jobs/submit.sh` (2026-11-09), which this command replaces.
 
 ## The writer
 
@@ -87,7 +87,7 @@ run.finish({"orig": 0.869, "self": 0.925})        # results.json, and status fin
 
 **Nothing lasting stays on the cluster.** Anurag's rules (2026-11-09): no downloaded model is kept on Minerva once the runs that need it are done, and logs are kept on the laptop, not the cluster. `labbook clean <project>` does both, after a yes, and refuses while any of the project's runs is still running:
 - **Models:** `run.model()` records which models a run used, so it lists those still in the cluster's cache and deletes each one's `models--...` folder and the blobs it links to, which is where the space actually is.
-- **Logs:** it checks that the sync has brought each finished run's `log.jsonl`, `system.jsonl` and `output.log` to the laptop with matching checksums, then deletes the cluster's copies. Run records (`meta.json`, `results.json`, `trace.md` and the rest) stay, as they are what the repo commits.
+- **Logs:** it checks that the sync has brought each finished run's `log.jsonl`, `system.jsonl`, `job.out` and `job.err` to the laptop with matching checksums, then deletes the cluster's copies. Run records (`meta.json`, `results.json`, `trace.md` and the rest) stay, as they are what the repo commits.
 - Trained adapters are the run's own output and are not touched.
 
 The copy of `tracker.py` vendored in `Learn-AI/train-sparse-autoencoder/` is replaced by the new file, and its runs keep syncing as before.
@@ -181,7 +181,7 @@ Labbook stays its own app rather than a page inside Thinking Space. It has to op
 Run folders sit inside the project repo, so this needs a rule. Suggested, not yet agreed:
 
 - **Committed:** `meta.json`, `config.json`, `status.json`, `results.json`, `trace.md`, `artifacts.jsonl`. Small, and enough for GitHub to show what ran and what came of it.
-- **Not committed:** `log.jsonl`, `system.jsonl`, `output.log`. They can be long; the app's sync brings them to the laptop.
+- **Not committed:** `log.jsonl`, `system.jsonl`, `job.out`, `job.err`. They can be long; the app's sync brings them to the laptop.
 
 `labbook init` writes the `.gitignore` lines for a project. On the cluster the run folders are untracked until committed from the laptop after a sync, as the introspection repo's `jobs/pull_runs.sh` does now; that script goes away once the sync does it.
 
@@ -193,8 +193,8 @@ Each step leaves everything working.
    - Fold the small labbook repo into this one with its history, as circuit-awareness was folded into introspection.
    - Delete the small labbook repo (Anurag confirms), then rename this repo `labbook` on GitHub. The old name redirects.
    - Rename the app's name and command (`rt` becomes `labbook`, `rt` kept as an alias for a while) and the data folder (`~/run-tracker-data` becomes `~/labbook-data`, moved on first start).
-2. **The writer.** `Run` with experiment and label, `trace`, `input`, `model`, `strict`, `results.json`, `labbook path`, and `labbook clean`. Tests for each. Copy it into Learn-AI and check the SAE runs still sync.
-3. **Finding runs by shape.** Project sources, the per-source report, and the clean-up of old sources. Move introspection onto the new writer, its job script onto `output.log`, and its existing runs into the new layout.
+2. **The writer.** `Run` with experiment and label, `trace`, `input`, `model`, `strict`, `results.json`, `labbook submit`, and `labbook clean`. Tests for each. Copy it into Learn-AI and check the SAE runs still sync.
+3. **Finding runs by shape.** Project sources, the per-source report, and the clean-up of old sources. Move introspection onto the new writer, its `jobs/submit.sh` onto `labbook submit`, and its existing runs into the new layout.
 4. **The tree and the experiment page** in the viewer, with the web code moved into `lego_blocks` / `orchestrators` / `pages` as it is touched.
 5. **Views.** The contract, `labbook views build`, the shared blocks, and Explanations as the first view.
 
