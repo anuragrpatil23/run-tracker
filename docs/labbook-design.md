@@ -36,7 +36,7 @@ introspection/                                   the project: a repo
       runs/
         2026-11-09_1755-rank128-1epoch/          one run: <date>_<time>-<label>
           meta.json  config.json  status.json  log.jsonl  system.jsonl  artifacts.jsonl
-          trace.md   output.log
+          trace.md   job.out  job.err
 ```
 
 - **The project is the repo**, the experiment is the folder, and the run is the date and time plus a short label the script gives. Nobody chooses a path.
@@ -128,7 +128,7 @@ Learn-AI
 
 - Each experiment line shows its latest run's state, so what is live, stalled or never run is seen without opening anything. Runs are newest first, each with its date.
 - **Clicking an experiment** opens its page, rendered from its `README.md` (Markdown, LaTeX, images), and under it a table of its runs: label, date, state, the settings that differ between them, and each run's `results.json`. The prediction sits beside the result.
-- **Clicking a run** opens today's run page: charts, settings, the command, the commit linked to GitHub, the machine, saved files. Added: the trace, the output log, the inputs and models.
+- **Clicking a run** opens today's run page: charts, settings, the command, the commit linked to GitHub, the machine, saved files. Added: the trace, the job's logs, the inputs and models.
 - **Ticking several runs** in the tree draws them together, which is what today's home page does. The strip of run chips stays as the legend.
 
 This replaces the home page's choice of having no sidebar. The tree is the sidebar, and it can fold away.
